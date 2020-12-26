@@ -1,0 +1,2 @@
+- Dynamically assign the areas of the matrix by doing the average of entities (Rabbits + foxes) that we should have per thread (Maintain a global counter of all living entities to avoid having to count them every generation) and divide into partial arrays (Either by row or by column, probably not by both because that might make counting and separating really hard)
+- For each thread, gather a map with a list for all conflicts with neighbour threads and send this list to the corresponding thread. This should save us the time of going through slots that have no conflicts
