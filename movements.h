@@ -10,7 +10,6 @@ typedef enum MoveDirection_ {
     WEST = 3
 } MoveDirection;
 
-
 typedef struct Move_ {
     int x, y;
 } Move;

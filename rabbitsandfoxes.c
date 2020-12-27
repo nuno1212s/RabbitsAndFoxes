@@ -173,7 +173,8 @@ Conflicts *performGeneration(int genNumber, InputData *inputData, WorldSlot *wor
                 for (int i = 0; i < slot.defaultP; i++) {
                     Move m = getMoveFor(slot.defaultPossibleMoveDirections[i]);
 
-                    WorldSlot possibleMove = worldCopy[PROJECT(inputData->columns, row + m.x, col + m.y)];
+                    WorldSlot possibleMove = worldCopy[PROJECT(inputData->columns,
+                                                               row + m.x, col + m.y)];
 
                     if (possibleMove.slotContent != EMPTY) {
                         continue;

@@ -165,6 +165,20 @@ struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *input
             emptyMoves[i] = 0;
         }
     }
+
+    struct RabbitMovements rabbitMovements = {emptyMovements, NULL};
+
+    if (emptyMovements > 0) {
+        rabbitMovements.emptyDirections = malloc(sizeof(MoveDirection) * emptyMovements);
+
+        int current = 0;
+
+        for (int i = 0; i < currentSlot.defaultP; i++) {
+            if (emptyMoves[i]) {
+                rabbitMovements.emptyDirections[current++] = currentSlot.defaultPossibleMoveDirections[i];
+            }
+        }
+    }
 }
 
 void freeDefaultMovements(struct DefaultMovements movements) {
@@ -178,4 +192,10 @@ void freeFoxMovements(struct FoxMovements foxMovements) {
         free(foxMovements.emptyDirections);
     }
 
+}
+
+void freeRabbitMovements(struct RabbitMovements rabbitMovements) {
+    if (rabbitMovements.emptyMovements > 0) {
+        free(rabbitMovements.emptyDirections);
+    }
 }
