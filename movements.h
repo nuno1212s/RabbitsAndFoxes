@@ -40,7 +40,7 @@ struct RabbitMovements {
 
 };
 
-Move getMoveFor(MoveDirection direction);
+Move *getMoveFor(MoveDirection direction);
 
 struct DefaultMovements getDefaultPossibleMovements(int x, int y, InputData *inputData, WorldSlot *world);
 
@@ -48,10 +48,10 @@ struct FoxMovements getPossibleFoxMovements(int x, int y, InputData *inputData, 
 
 struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world);
 
-void freeDefaultMovements(struct DefaultMovements movements);
+void freeDefaultMovements(struct DefaultMovements *movements);
 
-void freeFoxMovements(struct FoxMovements foxMovements);
+void freeFoxMovements(struct FoxMovements *foxMovements);
 
-void freeRabbitMovements(struct RabbitMovements rabbitMovements);
+void freeRabbitMovements(struct RabbitMovements *rabbitMovements);
 
 #endif //TRABALHO_2_MOVEMENTS_H

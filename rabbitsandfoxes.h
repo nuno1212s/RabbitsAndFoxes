@@ -4,22 +4,9 @@
 #include <stdio.h>
 #include "linkedlist.h"
 
+typedef enum MoveDirection_ MoveDirection;
 
-
-typedef struct Conflicts_ {
-
-    //Conflicts with the row the bounds given
-    LinkedList *above;
-
-    //Conflicts with the row below the bounds given
-    LinkedList *bellow;
-
-} Conflicts;
-
-typedef struct Conflict {
-
-
-} Conflict;
+struct ThreadedData;
 
 typedef struct InputData_ {
 
@@ -30,14 +17,16 @@ typedef struct InputData_ {
 
     int initialPopulation;
 
+    int threads;
+
 } InputData;
 
 typedef enum SlotContent_ {
 
     EMPTY = 0,
-    ROCK,
-    RABBIT,
-    FOX
+    ROCK = 1,
+    RABBIT = 2,
+    FOX = 3
 
 } SlotContent;
 
@@ -50,6 +39,7 @@ typedef struct RabbitInfo_ {
 typedef struct FoxInfo_ {
     int currentGenProc;
 
+    //Generations since the fox has eaten a rabbit
     int currentGenFood;
 } FoxInfo;
 
@@ -79,7 +69,33 @@ typedef struct WorldSlot_ {
      */
     int *entitiesUntilRow;
 
+    //Since I'll be keeping track of the amount of entities, at the end I only need to
+    //Calculate the entities in the last row + the amount of rocks, avoiding having to count 2 times
+    //Because the output of entities is at the top
+    int rockAmount;
+
 } WorldSlot;
+
+
+typedef struct Conflicts_ {
+
+    //Conflicts with the row the bounds given
+    LinkedList *above;
+
+    //Conflicts with the row below the bounds given
+    LinkedList *bellow;
+
+} Conflicts;
+
+typedef struct Conflict {
+
+    int newRow, newCol;
+
+    SlotContent slotContent;
+
+    void *data;
+
+} Conflict;
 
 InputData *readInputData(FILE *file);
 
@@ -89,6 +105,8 @@ InputData *readInputData(FILE *file);
  * @return
  */
 WorldSlot *initWorld(InputData *data);
+
+void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile);
 
 void readWorldInitialData(FILE *inputFile, InputData *inputData, WorldSlot *world);
 
@@ -102,7 +120,11 @@ void readWorldInitialData(FILE *inputFile, InputData *inputData, WorldSlot *worl
  * @param endRow
  * @return
  */
-Conflicts *performGeneration(int genNumber, InputData *inputData, WorldSlot *world, int startRow, int endRow);
+void
+performGeneration(int threadNumber, int genNumber, InputData *inputData,
+                  struct ThreadedData *threadedData, WorldSlot *world, int startRow, int endRow);
+
+void printResults(FILE *outputFile, InputData *inputData, WorldSlot *world);
 
 void freeWorldMatrix(WorldSlot *worldMatrix);
 
