@@ -8,6 +8,8 @@ static Move *EAST_MOVE = NULL;
 static Move *SOUTH_MOVE = NULL;
 static Move *WEST_MOVE = NULL;
 
+static MoveDirection *defaultDirections = NULL;
+
 static void initMoves() {
 
     NORTH_MOVE = malloc(sizeof(Move));
@@ -30,7 +32,15 @@ static void initMoves() {
 
 }
 
-//TODO: Maybe make this a pointer to heap allocated memory instead of copying it everytime
+static void initDefaultDirections() {
+    defaultDirections = malloc(sizeof(MoveDirection) * 4);
+
+    defaultDirections[0] = 0;
+    defaultDirections[1] = 1;
+    defaultDirections[2] = 2;
+    defaultDirections[3] = 3;
+}
+
 Move *getMoveFor(MoveDirection direction) {
 
     if (NORTH_MOVE == NULL || EAST_MOVE == NULL || SOUTH_MOVE == NULL || WEST_MOVE == NULL) {
@@ -74,7 +84,7 @@ struct DefaultMovements getDefaultPossibleMovements(int x, int y, InputData *inp
             }
 
             WorldSlot *slot = &world[PROJECT(inputData->columns,
-                                           x + move->x, y + move->y)];
+                                             x + move->x, y + move->y)];
 
             if (slot->slotContent == ROCK) {
                 //If there's a rock, this move will never be possible, as rocks are never removed
@@ -85,14 +95,25 @@ struct DefaultMovements getDefaultPossibleMovements(int x, int y, InputData *inp
         defaultP += possibleMoves[i];
     }
 
-    MoveDirection *directions = malloc(sizeof(MoveDirection) * defaultP);
+    MoveDirection *directions;
 
-    int current = 0;
+    if (defaultP < 4) {
+        directions = malloc(sizeof(MoveDirection) * defaultP);
 
-    for (int i = 0; i < 4; i++) {
-        if (possibleMoves[i]) {
-            directions[current++] = i;
+        int current = 0;
+
+        for (int i = 0; i < 4; i++) {
+            if (possibleMoves[i]) {
+                directions[current++] = i;
+            }
         }
+    } else {
+        //If we can move in every direction, we can use the default global array to save memory
+        if (defaultDirections == NULL) {
+            initDefaultDirections();
+        }
+
+        directions = defaultDirections;
     }
 
     struct DefaultMovements movements = {defaultP, directions};
@@ -113,15 +134,14 @@ struct FoxMovements getPossibleFoxMovements(int x, int y, InputData *inputData, 
 
         Move *move = getMoveFor(direction);
 
-        WorldSlot possibleSlot = world[PROJECT(inputData->columns, x + move->x, y + move->y)];
+        WorldSlot *possibleSlot = &world[PROJECT(inputData->columns, x + move->x, y + move->y)];
 
-        if (possibleSlot.slotContent == RABBIT) {
+        if (possibleSlot->slotContent == RABBIT) {
             rabbitMovements++;
 
             rabbitMoves[i] = 1;
             emptyMoves[i] = 0;
-        } else if (possibleSlot.slotContent == EMPTY) {
-
+        } else if (possibleSlot->slotContent == EMPTY) {
             emptyMovements++;
             emptyMoves[i] = 1;
             rabbitMoves[i] = 0;
@@ -199,7 +219,7 @@ struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *input
     return rabbitMovements;
 }
 
-void freeDefaultMovements(struct DefaultMovements* movements) {
+void freeDefaultMovements(struct DefaultMovements *movements) {
     free(movements->directions);
 }
 
@@ -212,7 +232,7 @@ void freeFoxMovements(struct FoxMovements *foxMovements) {
 
 }
 
-void freeRabbitMovements(struct RabbitMovements* rabbitMovements) {
+void freeRabbitMovements(struct RabbitMovements *rabbitMovements) {
     if (rabbitMovements->emptyMovements > 0) {
         free(rabbitMovements->emptyDirections);
     }

@@ -8,6 +8,8 @@ typedef enum MoveDirection_ MoveDirection;
 
 struct ThreadedData;
 
+struct ThreadConflictData;
+
 typedef struct InputData_ {
 
     int gen_proc_rabbits, gen_proc_foxes, gen_food_foxes;
@@ -32,11 +34,15 @@ typedef enum SlotContent_ {
 
 typedef struct RabbitInfo_ {
 
+    int genUpdated, prevGen;
+
     int currentGen;
 
 } RabbitInfo;
 
 typedef struct FoxInfo_ {
+    int genUpdated, prevGenProc;
+
     int currentGenProc;
 
     //Generations since the fox has eaten a rabbit
@@ -63,39 +69,7 @@ typedef struct WorldSlot_ {
 
     } entityInfo;
 
-    /**
-     * An array that stores the amount of entities that are in the tray until a certain row
-     * (The index is the row, and will return the amount of entities until the end of that row)
-     */
-    int *entitiesUntilRow;
-
-    //Since I'll be keeping track of the amount of entities, at the end I only need to
-    //Calculate the entities in the last row + the amount of rocks, avoiding having to count 2 times
-    //Because the output of entities is at the top
-    int rockAmount;
-
 } WorldSlot;
-
-
-typedef struct Conflicts_ {
-
-    //Conflicts with the row the bounds given
-    LinkedList *above;
-
-    //Conflicts with the row below the bounds given
-    LinkedList *bellow;
-
-} Conflicts;
-
-typedef struct Conflict {
-
-    int newRow, newCol;
-
-    SlotContent slotContent;
-
-    void *data;
-
-} Conflict;
 
 InputData *readInputData(FILE *file);
 
@@ -123,6 +97,8 @@ void readWorldInitialData(FILE *inputFile, InputData *inputData, WorldSlot *worl
 void
 performGeneration(int threadNumber, int genNumber, InputData *inputData,
                   struct ThreadedData *threadedData, WorldSlot *world, int startRow, int endRow);
+
+void handleConflicts(struct ThreadConflictData *conflictData, LinkedList *conflicts);
 
 void printResults(FILE *outputFile, InputData *inputData, WorldSlot *world);
 
