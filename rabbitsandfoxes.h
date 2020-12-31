@@ -6,6 +6,8 @@
 
 typedef enum MoveDirection_ MoveDirection;
 
+typedef struct Conflict_ Conflict;
+
 struct ThreadedData;
 
 struct ThreadConflictData;
@@ -20,6 +22,10 @@ typedef struct InputData_ {
     int initialPopulation;
 
     int threads;
+
+    int rocks;
+
+    int *entitiesAccumulatedPerRow;
 
 } InputData;
 
@@ -98,7 +104,7 @@ void
 performGeneration(int threadNumber, int genNumber, InputData *inputData,
                   struct ThreadedData *threadedData, WorldSlot *world, int startRow, int endRow);
 
-void handleConflicts(struct ThreadConflictData *conflictData, LinkedList *conflicts);
+void handleConflicts(struct ThreadConflictData *conflictData, int conflictCount, Conflict *conflicts);
 
 void printResults(FILE *outputFile, InputData *inputData, WorldSlot *world);
 

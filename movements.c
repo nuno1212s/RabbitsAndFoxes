@@ -3,6 +3,8 @@
 #include "matrix_utils.h"
 #include <stdlib.h>
 
+#define DIRECTIONS 4
+
 static Move *NORTH_MOVE = NULL;
 static Move *EAST_MOVE = NULL;
 static Move *SOUTH_MOVE = NULL;
@@ -33,7 +35,7 @@ static void initMoves() {
 }
 
 static void initDefaultDirections() {
-    defaultDirections = malloc(sizeof(MoveDirection) * 4);
+    defaultDirections = malloc(sizeof(MoveDirection) * DIRECTIONS);
 
     defaultDirections[0] = 0;
     defaultDirections[1] = 1;
@@ -121,7 +123,27 @@ struct DefaultMovements getDefaultPossibleMovements(int x, int y, InputData *inp
     return movements;
 }
 
-struct FoxMovements getPossibleFoxMovements(int x, int y, InputData *inputData, WorldSlot *world) {
+struct FoxMovements *initFoxMovements() {
+    struct FoxMovements *foxMovements = malloc(sizeof(struct FoxMovements));
+
+    foxMovements->emptyMovements = 0;
+    foxMovements->rabbitMovements = 0;
+    foxMovements->rabbitDirections = malloc(sizeof(MoveDirection) * DIRECTIONS);
+    foxMovements->emptyDirections = malloc(sizeof(MoveDirection) * DIRECTIONS);
+
+    return foxMovements;
+}
+
+struct RabbitMovements *initRabbitMovements() {
+    struct RabbitMovements *rabbitMovements = malloc(sizeof(struct RabbitMovements));
+
+    rabbitMovements->emptyMovements = 0;
+    rabbitMovements->emptyDirections = malloc(sizeof(MoveDirection) * DIRECTIONS);
+
+    return rabbitMovements;
+}
+
+void getPossibleFoxMovements(int x, int y, InputData *inputData, WorldSlot *world, struct FoxMovements *dest) {
 
     WorldSlot currentSlot = world[PROJECT(inputData->columns, x, y)];
 
@@ -151,35 +173,32 @@ struct FoxMovements getPossibleFoxMovements(int x, int y, InputData *inputData, 
         }
     }
 
-    struct FoxMovements foxMovements = {rabbitMovements, NULL, emptyMovements, NULL};
+    dest->rabbitMovements = rabbitMovements;
+    dest->emptyMovements = emptyMovements;
 
     if (rabbitMovements > 0) {
-        foxMovements.rabbitDirections = malloc(sizeof(MoveDirection) * rabbitMovements);
-
         int current = 0;
 
         for (int i = 0; i < currentSlot.defaultP; i++) {
             if (rabbitMoves[i]) {
-                foxMovements.rabbitDirections[current++] = currentSlot.defaultPossibleMoveDirections[i];
+                dest->rabbitDirections[current++] = currentSlot.defaultPossibleMoveDirections[i];
             }
         }
 
     } else if (emptyMovements > 0) {
-        foxMovements.emptyDirections = malloc(sizeof(MoveDirection) * emptyMovements);
-
         int current = 0;
 
         for (int i = 0; i < currentSlot.defaultP; i++) {
             if (emptyMoves[i]) {
-                foxMovements.emptyDirections[current++] = currentSlot.defaultPossibleMoveDirections[i];
+                dest->emptyDirections[current++] = currentSlot.defaultPossibleMoveDirections[i];
             }
         }
     }
 
-    return foxMovements;
 }
 
-struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world) {
+void getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world,
+                                struct RabbitMovements *rabbitMovements) {
 
     WorldSlot *currentSlot = &world[PROJECT(inputData->columns, x, y)];
 
@@ -202,21 +221,17 @@ struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *input
         }
     }
 
-    struct RabbitMovements rabbitMovements = {emptyMovements, NULL};
+    rabbitMovements->emptyMovements = emptyMovements;
 
     if (emptyMovements > 0) {
-        rabbitMovements.emptyDirections = malloc(sizeof(MoveDirection) * emptyMovements);
-
         int current = 0;
 
         for (int i = 0; i < currentSlot->defaultP; i++) {
             if (emptyMoves[i]) {
-                rabbitMovements.emptyDirections[current++] = currentSlot->defaultPossibleMoveDirections[i];
+                rabbitMovements->emptyDirections[current++] = currentSlot->defaultPossibleMoveDirections[i];
             }
         }
     }
-
-    return rabbitMovements;
 }
 
 void freeDefaultMovements(struct DefaultMovements *movements) {
@@ -224,16 +239,14 @@ void freeDefaultMovements(struct DefaultMovements *movements) {
 }
 
 void freeFoxMovements(struct FoxMovements *foxMovements) {
-    if (foxMovements->rabbitMovements > 0) {
-        free(foxMovements->rabbitDirections);
-    } else if (foxMovements->emptyMovements > 0) {
-        free(foxMovements->emptyDirections);
-    }
+    free(foxMovements->rabbitDirections);
+    free(foxMovements->emptyDirections);
 
+    free(foxMovements);
 }
 
 void freeRabbitMovements(struct RabbitMovements *rabbitMovements) {
-    if (rabbitMovements->emptyMovements > 0) {
-        free(rabbitMovements->emptyDirections);
-    }
+    free(rabbitMovements->emptyDirections);
+
+    free(rabbitMovements);
 }

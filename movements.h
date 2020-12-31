@@ -44,9 +44,13 @@ Move *getMoveFor(MoveDirection direction);
 
 struct DefaultMovements getDefaultPossibleMovements(int x, int y, InputData *inputData, WorldSlot *world);
 
-struct FoxMovements getPossibleFoxMovements(int x, int y, InputData *inputData, WorldSlot *world);
+struct FoxMovements *initFoxMovements();
 
-struct RabbitMovements getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world);
+struct RabbitMovements *initRabbitMovements();
+
+void getPossibleFoxMovements(int x, int y, InputData *inputData, WorldSlot *world, struct FoxMovements *dest);
+
+void getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world, struct RabbitMovements *dest);
 
 void freeDefaultMovements(struct DefaultMovements *movements);
 

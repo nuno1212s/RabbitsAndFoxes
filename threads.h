@@ -6,17 +6,7 @@
 #include "semaphore.h"
 #include "rabbitsandfoxes.h"
 
-typedef struct Conflicts_ {
-
-    //Conflicts with the row the bounds given
-    LinkedList *above;
-
-    //Conflicts with the row below the bounds given
-    LinkedList *bellow;
-
-} Conflicts;
-
-typedef struct Conflict {
+typedef struct Conflict_ {
 
     int newRow, newCol;
 
@@ -25,6 +15,21 @@ typedef struct Conflict {
     void *data;
 
 } Conflict;
+
+typedef struct Conflicts_ {
+
+    //Conflicts with the row the bounds given
+    int aboveCount;
+
+    Conflict *above;
+
+    //Conflicts with the row below the bounds given
+    int bellowCount;
+
+    Conflict *bellow;
+
+} Conflicts;
+
 
 struct ThreadedData {
     Conflicts **conflictPerThreads;
@@ -49,11 +54,11 @@ struct ThreadConflictData {
     struct ThreadedData *threadedData;
 };
 
-void initThreadData(int threadCount, struct ThreadedData *destination);
+void initThreadData(int threadCount, InputData *data, struct ThreadedData *destination);
 
 void postAndWaitForSurrounding(int threadNumber, InputData *data, struct ThreadedData *threadedData);
 
-void initAndAppendConflict(LinkedList *conflictList, int newRow, int newCol, WorldSlot *slot);
+void initAndAppendConflict(Conflicts *conflicts, int above, int newRow, int newCol, WorldSlot *slot);
 
 void synchronizeThreadAndSolveConflicts(struct ThreadConflictData *conflictData);
 
