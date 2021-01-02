@@ -19,12 +19,11 @@ struct InitialInputData {
     int printOutput;
 };
 
-static int handleMoveRabbit(RabbitInfo *info, WorldSlot *newSlot);
+static int handleMoveRabbit(RabbitInfo *info, WorldSlot *newSlot, int destRow, InputData *data);
 
-static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot);
+static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot, int destRow, InputData *data);
 
 void printPrettyAllGen(FILE *, InputData *, WorldSlot *);
-
 
 static FoxInfo *initFoxInfo() {
     FoxInfo *foxInfo = malloc(sizeof(FoxInfo));
@@ -57,20 +56,22 @@ static void freeRabbitInfo(RabbitInfo *rabbitInfo) {
 
 static void
 makeCopyOfPartOfWorld(int threadNumber, InputData *data, struct ThreadedData *threadedData, WorldSlot *toCopy,
-                      WorldSlot *destination,
+                      WorldSlot *destination, WorldSlot *destination2,
                       int copyStartRow, int copyEndRow) {
 
-//    pthread_barrier_wait(&threadedData->barrier);
-
-//    postAndWaitForSurrounding(threadNumber, data, threadedData);
+    pthread_barrier_wait(&threadedData->barrier);
 
     int rowCount = (copyEndRow - copyStartRow) + 1;
 
     memcpy(destination, &toCopy[PROJECT(data->columns, copyStartRow, 0)],
            (rowCount * data->columns * sizeof(WorldSlot)));
 
+    memcpy(destination2, &toCopy[PROJECT(data->columns, copyStartRow, 0)],
+           (rowCount * data->columns * sizeof(WorldSlot)));
+
     //wait for surrounding threads to also complete their copy to allow changes to the tray
-    pthread_barrier_wait(&threadedData->barrier);
+//    pthread_barrier_wait(&threadedData->barrier);
+    postAndWaitForSurrounding(threadNumber, data, threadedData);
 }
 
 static void initialRowEntityCount(InputData *inputData, WorldSlot *world) {
@@ -119,6 +120,7 @@ InputData *readInputData(FILE *file) {
     fscanf(file, "%d", &inputData->initialPopulation);
 
     inputData->entitiesAccumulatedPerRow = malloc(sizeof(int) * inputData->rows);
+    inputData->entitiesPerRow = malloc(sizeof(int) * inputData->rows);
 
     return inputData;
 }
@@ -169,6 +171,7 @@ void readWorldInitialData(FILE *file, InputData *data, WorldSlot *world) {
                 break;
             case RABBIT:
                 worldSlot->entityInfo.rabbitInfo = initRabbitInfo();
+                worldSlot->cachedRabbitProcGen = 0;
                 break;
             default:
                 break;
@@ -270,15 +273,52 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
 
 }
 
+static void fakeTickRabbit(int genNumber, int row, int copyRow, InputData *inputData, WorldSlot *worldCopy,
+                           WorldSlot *worldUpdateCopy,
+                           struct RabbitMovements *possibleRabbitMoves) {
+
+    for (int col = 0; col < inputData->columns; col++) {
+
+        WorldSlot *slot = &worldCopy[PROJECT(inputData->columns, copyRow, col)];
+
+        if (slot->slotContent == RABBIT) {
+
+            getPossibleRabbitMovements(copyRow, col, inputData, worldCopy,
+                                       possibleRabbitMoves);
+
+            if (possibleRabbitMoves->emptyMovements > 0) {
+
+                int nextPosition = (genNumber + row + col) % possibleRabbitMoves->emptyMovements;
+
+                MoveDirection direction = possibleRabbitMoves->emptyDirections[nextPosition];
+                Move *move = getMoveFor(direction);
+
+                int newRow = copyRow + move->x, newCol = col + move->y;
+
+                (&worldUpdateCopy[PROJECT(inputData->columns, newRow, newCol)])->slotContent = RABBIT;
+
+                //Somehow cache this with the copy, so that we won't have to get it from the information that is owned by the other thread.
+                if (slot->cachedRabbitProcGen < inputData->gen_proc_rabbits) {
+                    (&worldUpdateCopy[PROJECT(inputData->columns, copyRow, col)])->slotContent = EMPTY;
+                }
+            }
+        }
+    }
+
+
+}
+
 static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col, WorldSlot *slot,
                        InputData *inputData,
-                       WorldSlot *world,
+                       WorldSlot *world, WorldSlot *worldUpdateCopy, int copyRow,
                        struct RabbitMovements *possibleRabbitMoves, Conflicts *conflictsForThread) {
 
     RabbitInfo *rabbitInfo = slot->entityInfo.rabbitInfo;
 
     //If there is no moves then the move is successful
     int movementResult = 1, procriated = 0;
+
+    WorldSlot *finalRabbitSlot = &world[PROJECT(inputData->columns, row, col)];
 
     if (possibleRabbitMoves->emptyMovements > 0) {
 
@@ -290,7 +330,7 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
         int newRow = row + move->x, newCol = col + move->y;
 
 #ifdef VERBOSE
-        printf("Moving rabbit with direction %d (Index: %d, Possible: %d) to location %d %d \n", direction,
+        printf("Moving rabbit (%d, %d) with direction %d (Index: %d, Possible: %d) to location %d %d \n", row, col,direction,
                nextPosition, possibleRabbitMoves->emptyMovements,
                newRow, newCol);
 #endif
@@ -303,14 +343,21 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
             //Initialize a new rabbit for that position
             realSlot->entityInfo.rabbitInfo = initRabbitInfo();
             realSlot->entityInfo.rabbitInfo->genUpdated = genNumber;
+            realSlot->cachedRabbitProcGen = 0;
             rabbitInfo->genUpdated = genNumber;
             rabbitInfo->currentGen = 0;
+
+            inputData->entitiesPerRow[row]++;
 
             procriated = 1;
         } else {
             realSlot->slotContent = EMPTY;
             realSlot->entityInfo.rabbitInfo = NULL;
+            realSlot->cachedRabbitProcGen = 0;
+            (&worldUpdateCopy[PROJECT(inputData->columns, copyRow, col)])->slotContent = EMPTY;
         }
+
+        (&worldUpdateCopy[PROJECT(inputData->columns, copyRow + move->x, newCol)])->slotContent = RABBIT;
 
         if (newRow < startRow || newRow > endRow) {
             //Conflict, we have to access another thread's memory space, create a conflict
@@ -320,10 +367,13 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
         } else {
             WorldSlot *newSlot = &world[PROJECT(inputData->columns, newRow, newCol)];
 
-            movementResult = handleMoveRabbit(rabbitInfo, newSlot);
+            finalRabbitSlot = newSlot;
+
+            movementResult = handleMoveRabbit(rabbitInfo, newSlot, newRow, inputData);
         }
 
     } else {
+        inputData->entitiesPerRow[row]++;
         //No possible movements for the rabbit
     }
 
@@ -335,6 +385,10 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
         rabbitInfo->currentGen++;
         rabbitInfo->genUpdated = genNumber;
         rabbitInfo->prevGen = rabbitInfo->currentGen;
+
+        if (movementResult) {
+            finalRabbitSlot->cachedRabbitProcGen = rabbitInfo->currentGen;
+        }
     }
 
     if (!movementResult) {
@@ -344,12 +398,12 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
 
 static void
 performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, struct ThreadedData *threadedData,
-                        WorldSlot *world, WorldSlot *worldCopy, int startRow, int endRow) {
+                        WorldSlot *world, WorldSlot *worldCopy, WorldSlot *worldUpdateCopy, int startRow, int endRow) {
 
-    int storagePaddingTop = startRow > 0 ? 1 : 0;
+    int storagePaddingTop = startRow > 0 ? 3 : 0;
 
-    int copyStartRow = startRow > 0 ? startRow - 1 : startRow,
-            copyEndRow = endRow < inputData->rows ? endRow + 1 : endRow;
+    int copyStartRow = startRow > 0 ? startRow - 3 : startRow,
+            copyEndRow = endRow < inputData->rows ? endRow + 3 : endRow;
 
 #ifdef VERBOSE
     printf("End Row: %d, start row: %d, storage padding top %d\n", endRow, startRow, storagePaddingTop);
@@ -370,12 +424,12 @@ performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, s
 
             if (slot->slotContent == RABBIT) {
 
-
                 getPossibleRabbitMovements(copyRow + storagePaddingTop, col, inputData, worldCopy,
                                            possibleRabbitMoves);
 
                 tickRabbit(genNumber, startRow, endRow, row, col, slot,
-                           inputData, world, possibleRabbitMoves, conflictsForThread);
+                           inputData, world, worldUpdateCopy, copyRow + storagePaddingTop,
+                           possibleRabbitMoves, conflictsForThread);
 
                 //Even though we get passed the struct by value, we have to free it,as there's some arrays
                 //Contained in it
@@ -383,14 +437,35 @@ performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, s
         }
     }
 
+    if (startRow > 0) {
+        for (int copyRow = -2; copyRow < 0; copyRow++) {
+
+            int row = copyRow + startRow;
+
+            fakeTickRabbit(genNumber, row, (copyRow + storagePaddingTop), inputData, worldCopy, worldUpdateCopy,
+                           possibleRabbitMoves);
+        }
+
+    }
+
+    if (endRow < inputData->rows - 1) {
+        for (int copyRow = trueRowCount + 1; copyRow < trueRowCount + 3; copyRow++) {
+            int row = copyRow + startRow;
+
+            fakeTickRabbit(genNumber, row, (copyRow
+                                            + storagePaddingTop), inputData, worldCopy, worldUpdateCopy,
+                           possibleRabbitMoves);
+        }
+    }
+
     freeRabbitMovements(possibleRabbitMoves);
 
-    //Initialize with the conflicts at null because we don't want to access the memory
-    //Until we know it's safe to do so
-    struct ThreadConflictData conflictData = {threadNumber, startRow, endRow, inputData,
-                                              world, threadedData};
-
-    synchronizeThreadAndSolveConflicts(&conflictData);
+//Initialize with the conflicts at null because we don't want to access the memory
+//Until we know it's safe to do so
+//    struct ThreadConflictData conflictData = {threadNumber, startRow, endRow, inputData,
+//                                              world, threadedData};
+//
+//    synchronizeThreadAndSolveConflicts(&conflictData);
 }
 
 
@@ -449,6 +524,9 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
             foxInfo->genUpdated = genNumber;
             foxInfo->prevGenProc = foxInfo->currentGenProc;
             foxInfo->currentGenProc = 0;
+            //Increment the entities in the row, as a new fox has just been born
+            inputData->entitiesPerRow[row]++;
+
             procriated = 1;
         } else {
             //Clear the slot
@@ -456,16 +534,32 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
 
             realSlot->entityInfo.foxInfo = NULL;
         }
+    } else {
+        //If the fox doesn't move, then increment the entity count in the row it's in, as it will stay there
+        inputData->entitiesPerRow[row]++;
     }
 
     if (foxMovements->rabbitMovements > 0) {
         nextPosition = (genNumber + row + col) % foxMovements->rabbitMovements;
 
         direction = foxMovements->rabbitDirections[nextPosition];
+
+#ifdef VERBOSE
+        Move *move = getMoveFor(direction);
+        int newRow = row + move->x, newCol = col + move->y;
+
+        printf("Moving fox (%d, %d) to location %d %d to eat a rabbit.\n", row, col, newRow, newCol);
+#endif
     } else if (foxMovements->emptyMovements > 0) {
         nextPosition = (genNumber + row + col) % foxMovements->emptyMovements;
 
         direction = foxMovements->emptyDirections[nextPosition];
+#ifdef VERBOSE
+        Move *move = getMoveFor(direction);
+        int newRow = row + move->x, newCol = col + move->y;
+
+        printf("Moving fox (%d, %d) to location %d %d empty.\n", row, col, newRow, newCol);
+#endif
     }
 
     if (foxMovements->rabbitMovements > 0 || foxMovements->emptyMovements > 0) {
@@ -480,7 +574,7 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
         } else {
             WorldSlot *newSlot = &world[PROJECT(inputData->columns, newRow, newCol)];
 
-            foxMovementResult = handleMoveFox(foxInfo, newSlot);
+            foxMovementResult = handleMoveFox(foxInfo, newSlot, newRow, inputData);
         }
     } else {
 #ifdef VERBOSE
@@ -516,7 +610,7 @@ static void
 performFoxGeneration(int threadNumber, int genNumber, InputData *inputData, struct ThreadedData *threadedData,
                      WorldSlot *world, WorldSlot *worldCopy, int startRow, int endRow) {
 
-    int storagePaddingTop = startRow > 0 ? 1 : 0;
+    int storagePaddingTop = startRow > 0 ? 3 : 0;
 
     int trueRowCount = endRow - startRow;
 
@@ -555,22 +649,28 @@ void performGeneration(int threadNumber, int genNumber,
                        InputData *inputData, struct ThreadedData *threadedData, WorldSlot *world, int startRow,
                        int endRow) {
 
-    int copyStartRow = startRow > 0 ? startRow - 1 : startRow,
-            copyEndRow = endRow < (inputData->rows - 1) ? endRow + 1 : endRow;
+    int copyStartRow = startRow > 0 ? startRow - 3 : startRow,
+            copyEndRow = endRow < (inputData->rows - 1) ? endRow + 3 : endRow;
 
     int rowCount = ((copyEndRow - copyStartRow) + 1);
 
     /**
      * A copy of our area of the tray. This copy will not be modified
      */
-    WorldSlot worldCopy[rowCount * inputData->columns];
+    WorldSlot worldCopy[rowCount * inputData->columns],
+            worldCopyUpdate[rowCount * inputData->columns];
+
+    for (int i = startRow; i < endRow; i++) {
+        inputData->entitiesPerRow[i] = 0;
+    }
 
 #ifdef VERBOSE
     printf("Doing copy of world Row: %d to %d (Initial: %d %d, %d)\n", copyStartRow, copyEndRow, startRow, endRow,
            inputData->rows);
 #endif
 
-    makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy, copyStartRow, copyEndRow);
+    makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy,
+                          worldCopyUpdate, copyStartRow, copyEndRow);
 
 #ifdef VERBOSE
     printf("Done copy on thread %d\n", threadNumber);
@@ -578,13 +678,18 @@ void performGeneration(int threadNumber, int genNumber,
 
     clearConflictsForThread(threadNumber, threadedData);
 
-    performRabbitGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+    performRabbitGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, worldCopyUpdate,
+                            startRow, endRow);
 
-    makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy, copyStartRow, copyEndRow);
+//    makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy, copyStartRow, copyEndRow);
 
-    clearConflictsForThread(threadNumber, threadedData);
+//    clearConflictsForThread(threadNumber, threadedData);
 
-    performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+    performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopyUpdate, startRow,
+                         endRow);
+
+//    free(worldCopyUpdate);
+//    free(worldCopy);
 }
 
 
@@ -597,7 +702,6 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
 #endif
 
     WorldSlot *world = threadConflictData->world;
-
     /*
      * Go through all the conflicts
      */
@@ -621,13 +725,14 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
         //Both entities are the same, so we have to follow the rules for eating rabbits.
         if (conflict->slotContent == RABBIT) {
 
-            if (handleMoveRabbit((RabbitInfo *) conflict->data, currentEntityInSlot) == 0) {
+            if (handleMoveRabbit((RabbitInfo *) conflict->data, currentEntityInSlot, row,
+                                 threadConflictData->inputData) == 0) {
                 freeRabbitInfo(conflict->data);
             }
 
         } else if (conflict->slotContent == FOX) {
 
-            int foxResult = handleMoveFox(conflict->data, currentEntityInSlot);
+            int foxResult = handleMoveFox(conflict->data, currentEntityInSlot, row, threadConflictData->inputData);
 
             if (foxResult == 2) {
                 //This happens after the gen food has been incremented, so if we set it to 0 here
@@ -648,7 +753,7 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
  * Returns 1 if the fox moves without dying, 2 if the fox eats a rabbit in the process,
  * 0 if the fox dies, -1 is err
  */
-static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot) {
+static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot, int newRow, InputData *data) {
     if (newSlot->slotContent == FOX) {
 
         int foxInfoAge, newSlotAge;
@@ -736,6 +841,8 @@ static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot) {
         newSlot->slotContent = FOX;
 
         newSlot->entityInfo.foxInfo = foxInfo;
+        //We only increment the entities in the row when the fox doesn't eat any other animal
+        data->entitiesPerRow[newRow]++;
 
         return 1;
     } else {
@@ -755,7 +862,7 @@ static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot) {
  * @param rabbitInfo
  * @param newSlot
  */
-static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot) {
+static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot, int newRow, InputData *data) {
 
     if (newSlot->slotContent == RABBIT) {
 
@@ -787,6 +894,7 @@ static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot) {
             freeRabbitInfo(newSlot->entityInfo.rabbitInfo);
 
             newSlot->entityInfo.rabbitInfo = rabbitInfo;
+            newSlot->cachedRabbitProcGen = rabbitInfo->currentGen;
 
             return 1;
         } else {
@@ -799,7 +907,19 @@ static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot) {
         newSlot->slotContent = RABBIT;
         newSlot->entityInfo.rabbitInfo = rabbitInfo;
 
+        newSlot->cachedRabbitProcGen = rabbitInfo->currentGen;
+        //Only increment the entities in the row when they get moved to an empty position
+        data->entitiesPerRow[newRow]++;
+
         return 1;
+    } else if (newSlot->slotContent == FOX) {
+
+        //Fox has eaten us, as it was probably a conflict that was only handled at the end, so if we move to a fox
+        //We can assume the fox already knew we were going there and has killed us
+        newSlot->entityInfo.foxInfo->currentGenFood = 0;
+
+        return 0;
+
     } else {
 
         //Shouldn't

@@ -10,6 +10,8 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
 
     destination->threadSemaphores = malloc(sizeof(sem_t) * threadCount);
 
+    destination->conflictSemaphores = malloc(sizeof(sem_t) * threadCount);
+
     pthread_barrier_init(&destination->barrier, NULL, threadCount);
 
     for (int i = 0; i < threadCount; i++) {
@@ -21,7 +23,7 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
         destination->conflictPerThreads[i]->bellow = malloc(sizeof(Conflict) * data->columns);
 
         sem_init(&destination->threadSemaphores[i], 0, 0);
-
+        sem_init(&destination->conflictSemaphores[i], 0, 0);
 //        printf("Initialized semaphore on address %p\n", &destination->threadSemaphores[i]);
     }
 }
@@ -169,7 +171,15 @@ void postAndWaitForSurrounding(int threadNumber, InputData *data, struct Threade
 
     if (data->threads < 2) return;
 
-    sem_t *our_sem = &threadedData->threadSemaphores[threadNumber];
+    sem_t *our_sem = &threadedData->conflictSemaphores[threadNumber];
+
+//    int val = 0;
+//
+//    sem_getvalue(our_sem, &val);
+//
+//    if (val != 0) {
+//        printf("SEM STARTING WITH VALUE != 0 (%d)!!! Thread %d\n", val, threadNumber);
+//    }
 
     if (threadNumber > 0 && threadNumber < (data->threads - 1)) {
         //If we're a middle thread, we will have to post for 2 threads
@@ -177,52 +187,46 @@ void postAndWaitForSurrounding(int threadNumber, InputData *data, struct Threade
     }
 
 //    printf("Posted to sem %d\n", threadNumber);
-
     sem_post(our_sem);
 
-    int val = 0;
+//    sem_getvalue(our_sem, &val);
 
-    sem_getvalue(our_sem, &val);
-
-    printf("Thread %d entered post and wait %p value: %d\n", threadNumber, our_sem, val);
+//    printf("Thread %d entered post and wait %p value: %d\n", threadNumber, our_sem, val);
 
     if (threadNumber == 0) {
-        sem_t *botSem = &threadedData->threadSemaphores[threadNumber + 1];
+        sem_t *botSem = &threadedData->conflictSemaphores[threadNumber + 1];
 
-        printf("Thread %d Waiting for bot_sem %d\n", threadNumber, threadNumber + 1);
+//        sem_getvalue(botSem, &val);
+//        printf("Thread %d Waiting for bot_sem %d (Val: %d) \n", threadNumber, threadNumber + 1, val);
 
-        sem_getvalue(botSem, &val);
+        while (sem_wait(botSem) != 0);
 
-        printf("Sem %d %p value: %d\n", threadNumber + 1, botSem, val);
-        sem_wait(botSem);
-
-        printf("Thread %d unlocked.\n", threadNumber);
+//        printf("Unlocked Thread %d\n", threadNumber);
     } else if (threadNumber > 0 && threadNumber < (data->threads - 1)) {
 
-        sem_t *botSem = &threadedData->threadSemaphores[threadNumber + 1],
-                *topSem = &threadedData->threadSemaphores[threadNumber - 1];
+        sem_t *botSem = &threadedData->conflictSemaphores[threadNumber + 1],
+                *topSem = &threadedData->conflictSemaphores[threadNumber - 1];
 
+//        sem_getvalue(topSem, &val);
+//        printf("Thread %d Waiting for top sem %d (Val: %d)...\n", threadNumber, threadNumber - 1, val);
 
-        printf("Thread %d Waiting for top sem,...\n", threadNumber);
-        sem_getvalue(topSem, &val);
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, botSem, val);
-        sem_wait(topSem);
+        while (sem_wait(topSem) != 0);
 
-        printf("Thread %d unlocked top.\n", threadNumber);
-        printf("Thread %d Waiting for bot_sem\n", threadNumber);
-        sem_getvalue(botSem, &val);
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber + 1, botSem, val);
-        sem_wait(botSem);
-        printf("Thread %d unlocked bot. (UNLOCKED)\n", threadNumber);
+//        printf("Thread %d unlocked top.\n", threadNumber);
+//        sem_getvalue(botSem, &val);
+
+//        printf("Thread %d Waiting for bot_sem %d (Val: %d)\n", threadNumber, threadNumber + 1, val);
+
+        while (sem_wait(botSem) != 0);
+
+//        printf("Unlocked thread %d\n", threadNumber);
     } else {
-        sem_t *topSem = &threadedData->threadSemaphores[threadNumber - 1];
+        sem_t *topSem = &threadedData->conflictSemaphores[threadNumber - 1];
 
-        printf("Thread %d Waiting for top_sem %d\n", threadNumber, threadNumber - 1);
-        sem_getvalue(topSem, &val);
-
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, &topSem, val);
-        sem_wait(topSem);
-        printf("Unlock thread %d\n", threadNumber);
+//        sem_getvalue(topSem, &val);
+//        printf("Thread %d Waiting for top_sem %d (Val: %d)\n", threadNumber, threadNumber - 1, val);
+        while (sem_wait(topSem) != 0);
+//        printf("Unlocked thread %d\n", threadNumber);
     }
 
 }

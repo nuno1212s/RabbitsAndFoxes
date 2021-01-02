@@ -27,6 +27,8 @@ typedef struct InputData_ {
 
     int *entitiesAccumulatedPerRow;
 
+    int*entitiesPerRow;
+
 } InputData;
 
 typedef enum SlotContent_ {
@@ -74,6 +76,8 @@ typedef struct WorldSlot_ {
         RabbitInfo *rabbitInfo;
 
     } entityInfo;
+
+    int cachedRabbitProcGen;
 
 } WorldSlot;
 

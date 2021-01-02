@@ -36,7 +36,7 @@ struct ThreadedData {
 
     pthread_t *threads;
 
-    sem_t *threadSemaphores;
+    sem_t *threadSemaphores, *conflictSemaphores;
 
     pthread_barrier_t barrier;
 };
