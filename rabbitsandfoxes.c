@@ -245,7 +245,7 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
         inputData->threadNumber = thread;
         inputData->world = world;
         inputData->threadedData = threadedData;
-        inputData->printOutput = 0;
+        inputData->printOutput = 1;
 
         printf("Initializing thread %d \n", thread);
 
@@ -290,9 +290,10 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
         int newRow = row + move->x, newCol = col + move->y;
 
 #ifdef VERBOSE
-        printf("Moving rabbit with direction %d (Index: %d, Possible: %d) to location %d %d \n", direction,
+        if (genNumber > 180 && genNumber < 200)
+        printf("Moving rabbit (%d, %d) with direction %d (Index: %d, Possible: %d) to location %d %d age %d \n", row, col, direction,
                nextPosition, possibleRabbitMoves->emptyMovements,
-               newRow, newCol);
+               newRow, newCol, rabbitInfo->currentGen);
 #endif
 
         WorldSlot *realSlot = &world[PROJECT(inputData->columns, row, col)];
@@ -304,6 +305,7 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
             realSlot->entityInfo.rabbitInfo = initRabbitInfo();
             realSlot->entityInfo.rabbitInfo->genUpdated = genNumber;
             rabbitInfo->genUpdated = genNumber;
+            rabbitInfo->prevGen = 0;
             rabbitInfo->currentGen = 0;
 
             procriated = 1;
@@ -332,9 +334,9 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
     //Number to handle the conflicts
     if (!procriated) {
         //Only increment if we did not procriate
-        rabbitInfo->currentGen++;
-        rabbitInfo->genUpdated = genNumber;
         rabbitInfo->prevGen = rabbitInfo->currentGen;
+        rabbitInfo->genUpdated = genNumber;
+        rabbitInfo->currentGen++;
     }
 
     if (!movementResult) {
@@ -352,6 +354,7 @@ performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, s
             copyEndRow = endRow < inputData->rows ? endRow + 1 : endRow;
 
 #ifdef VERBOSE
+    if (genNumber > 180 && genNumber < 200)
     printf("End Row: %d, start row: %d, storage padding top %d\n", endRow, startRow, storagePaddingTop);
 #endif
     int trueRowCount = (endRow - startRow);
@@ -409,6 +412,7 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
     foxInfo->currentGenFood++;
 
 #ifdef VERBOSE
+    if (genNumber > 180 && genNumber < 200)
     printf("Checking fox %p (%d %d) food %d\n", foxInfo, row, col, foxInfo->currentGenFood);
 #endif
 
@@ -422,6 +426,7 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
             realSlot->entityInfo.foxInfo = NULL;
 
 #ifdef VERBOSE
+            if (genNumber > 180 && genNumber < 200)
             printf("Fox %p on %d %d Starved to death\n", foxInfo, row, col);
 #endif
 
@@ -484,6 +489,7 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
         }
     } else {
 #ifdef VERBOSE
+        if (genNumber > 180 && genNumber < 200)
         printf("FOX at %d %d has no possible movements\n", row, col);
 #endif
     }
@@ -764,11 +770,11 @@ static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot) {
         int rabbitInfoAge, newSlotAge;
 
         if (rabbitInfo->genUpdated > newSlot->entityInfo.rabbitInfo->genUpdated) {
-            rabbitInfoAge = rabbitInfo->prevGen;
-            newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen;
-        } else if (rabbitInfo->genUpdated < newSlot->entityInfo.rabbitInfo->genUpdated) {
             rabbitInfoAge = rabbitInfo->currentGen;
-            newSlotAge = newSlot->entityInfo.rabbitInfo->prevGen;
+            newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen + 1;
+        } else if (rabbitInfo->genUpdated < newSlot->entityInfo.rabbitInfo->genUpdated) {
+            rabbitInfoAge = rabbitInfo->currentGen + 1;
+            newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen;
         } else {
             rabbitInfoAge = rabbitInfo->currentGen;
             newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen;
