@@ -245,7 +245,7 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
         inputData->threadNumber = thread;
         inputData->world = world;
         inputData->threadedData = threadedData;
-        inputData->printOutput = 1;
+        inputData->printOutput = 0;
 
         printf("Initializing thread %d \n", thread);
 
@@ -290,7 +290,6 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
         int newRow = row + move->x, newCol = col + move->y;
 
 #ifdef VERBOSE
-        if (genNumber > 180 && genNumber < 200)
         printf("Moving rabbit (%d, %d) with direction %d (Index: %d, Possible: %d) to location %d %d age %d \n", row, col, direction,
                nextPosition, possibleRabbitMoves->emptyMovements,
                newRow, newCol, rabbitInfo->currentGen);
@@ -354,7 +353,6 @@ performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, s
             copyEndRow = endRow < inputData->rows ? endRow + 1 : endRow;
 
 #ifdef VERBOSE
-    if (genNumber > 180 && genNumber < 200)
     printf("End Row: %d, start row: %d, storage padding top %d\n", endRow, startRow, storagePaddingTop);
 #endif
     int trueRowCount = (endRow - startRow);
@@ -412,7 +410,6 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
     foxInfo->currentGenFood++;
 
 #ifdef VERBOSE
-    if (genNumber > 180 && genNumber < 200)
     printf("Checking fox %p (%d %d) food %d\n", foxInfo, row, col, foxInfo->currentGenFood);
 #endif
 
@@ -426,7 +423,6 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
             realSlot->entityInfo.foxInfo = NULL;
 
 #ifdef VERBOSE
-            if (genNumber > 180 && genNumber < 200)
             printf("Fox %p on %d %d Starved to death\n", foxInfo, row, col);
 #endif
 
@@ -489,7 +485,6 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
         }
     } else {
 #ifdef VERBOSE
-        if (genNumber > 180 && genNumber < 200)
         printf("FOX at %d %d has no possible movements\n", row, col);
 #endif
     }
@@ -660,11 +655,11 @@ static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot) {
         int foxInfoAge, newSlotAge;
 
         if (foxInfo->genUpdated > newSlot->entityInfo.rabbitInfo->genUpdated) {
-            foxInfoAge = foxInfo->prevGenProc;
-            newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen;
-        } else if (foxInfo->genUpdated < newSlot->entityInfo.rabbitInfo->genUpdated) {
             foxInfoAge = foxInfo->currentGenProc;
-            newSlotAge = newSlot->entityInfo.rabbitInfo->prevGen;
+            newSlotAge = newSlot->entityInfo.foxInfo->currentGenProc + 1;
+        } else if (foxInfo->genUpdated < newSlot->entityInfo.rabbitInfo->genUpdated) {
+            foxInfoAge = foxInfo->currentGenProc + 1;
+            newSlotAge = newSlot->entityInfo.foxInfo->currentGenProc;
         } else {
             foxInfoAge = foxInfo->currentGenProc;
             newSlotAge = newSlot->entityInfo.rabbitInfo->currentGen;
