@@ -39,6 +39,10 @@ struct ThreadedData {
     sem_t *threadSemaphores;
 
     pthread_barrier_t barrier;
+
+    //This is an array that stores the editable copies of the world for each thread.
+    //These are only going to be written to and will be read when passed to foxes
+    WorldCopy **globalWorldCopies;
 };
 
 struct ThreadConflictData {

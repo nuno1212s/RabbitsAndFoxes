@@ -77,6 +77,15 @@ typedef struct WorldSlot_ {
 
 } WorldSlot;
 
+
+typedef struct WorldCopy_ {
+    int startRow, endRow;
+
+    int rowCount;
+
+    WorldSlot *data;
+} WorldCopy;
+
 InputData *readInputData(FILE *file);
 
 /**

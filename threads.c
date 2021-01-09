@@ -24,6 +24,8 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
 
 //        printf("Initialized semaphore on address %p\n", &destination->threadSemaphores[i]);
     }
+
+    destination->globalWorldCopies = malloc(sizeof(WorldCopy*) * threadCount);
 }
 
 /*
