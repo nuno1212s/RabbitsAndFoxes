@@ -11,6 +11,7 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
     destination->threadSemaphores = malloc(sizeof(sem_t) * threadCount);
 
     pthread_barrier_init(&destination->barrier, NULL, threadCount);
+    pthread_barrier_init(&destination->barrier2, NULL, threadCount);
 
     for (int i = 0; i < threadCount; i++) {
         destination->conflictPerThreads[i] = malloc(sizeof(Conflicts));

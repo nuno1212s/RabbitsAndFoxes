@@ -39,7 +39,7 @@ static int handleMoveRabbit(RabbitInfo *info, WorldSlot *newSlot, WorldSlot *new
 
 static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot);
 
-void printPrettyAllGen(FILE *, InputData *, WorldSlot *);
+void printPrettyAllGen(FILE *, InputData *, WorldSlot *, int);
 
 static WorldCopy *initWorldCopy(int copyStartRow, int copyEndRow, InputData *data) {
     int rowCount = (copyEndRow - copyStartRow) + 1;
@@ -92,15 +92,16 @@ static void
 makeCopyOfPartOfWorld(int threadNumber, InputData *data, struct ThreadedData *threadedData, WorldSlot *toCopy,
                       WorldCopy *destination, WorldCopy *destination2) {
 
-//    pthread_barrier_wait(&threadedData->barrier);
+    pthread_barrier_wait(&threadedData->barrier);
 
 //    postAndWaitForSurrounding(threadNumber, data, threadedData);
 
     memcpy(destination->data, &toCopy[PROJECT(data->columns, destination->startRow, 0)],
            (destination->rowCount * data->columns * sizeof(WorldSlot)));
 
-    memcpy(destination2->data, &toCopy[PROJECT(data->columns, destination2->startRow, 0)],
-           destination2->rowCount * data->columns * sizeof(WorldSlot));
+    if (destination2 != NULL)
+        memcpy(destination2->data, &toCopy[PROJECT(data->columns, destination2->startRow, 0)],
+               destination2->rowCount * data->columns * sizeof(WorldSlot));
 
     //wait for surrounding threads to also complete their copy to allow changes to the tray
     pthread_barrier_wait(&threadedData->barrier);
@@ -234,7 +235,7 @@ static void executeThread(struct InitialInputData *args) {
             if (args->threadNumber == 0) {
                 fprintf(outputFile, "Generation %d\n", gen);
                 printf("Generation %d\n", gen);
-                printPrettyAllGen(outputFile, args->inputData, args->world);
+                printPrettyAllGen(outputFile, args->inputData, args->world, -1);
                 fprintf(outputFile, "\n");
             }
 
@@ -301,6 +302,8 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
 
     printf("Took %ld nanoseconds\n", endTime.tv_nsec - startTime.tv_nsec);
 
+    freeWorldMatrix(world);
+
 }
 
 static void
@@ -310,6 +313,7 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
     int storagePaddingTop = positionalData->startRow > 0 ? STORAGE_PADDING : 0;
 
     int startRow = positionalData->startRow, endRow = positionalData->endRow;
+
     WorldSlot *world = positionalData->ecosystem;
     InputData *inputData = positionalData->data;
 
@@ -317,7 +321,7 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
 
     WorldCopy *worldEditableCopy = positionalData->globalWorldCopies[threadNum];
 
-    //If there is no moves then the move is successful
+    //If there are no moves then the move is successful
     int movementResult = 1, procriated = 0;
 
     if (possibleRabbitMoves->emptyMovements > 0) {
@@ -328,6 +332,7 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
         Move *move = getMoveFor(direction);
 
         int newRow = row + move->x, newCol = col + move->y;
+        int newCopyRow = (newRow - startRow) + storagePaddingTop;
 
 #ifdef VERBOSE
         printf("Moving rabbit (%d, %d) with direction %d (Index: %d, Possible: %d) to location %d %d age %d \n", row, col, direction,
@@ -351,7 +356,35 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
         } else {
             realSlot->slotContent = EMPTY;
             realSlot->entityInfo.rabbitInfo = NULL;
+
+            (&worldEditableCopy->data[PROJECT(inputData->columns, (row - startRow) + storagePaddingTop, col)])
+                    ->slotContent = EMPTY;
+
+            if (threadNum > 0) {
+                if (row == startRow) {
+                    WorldCopy *topThreadEditableCopy = positionalData->globalWorldCopies[threadNum - 1];
+
+                    int lastRow = topThreadEditableCopy->rowCount - 1;
+
+                    WorldSlot *newSlot = &topThreadEditableCopy->data[PROJECT(inputData->columns, lastRow, col)];
+
+                    newSlot->slotContent = EMPTY;
+                }
+            }
+
+            if (threadNum < inputData->threads - 1) {
+                if (row == endRow) {
+                    WorldCopy *bottomThreadEditableCopy = positionalData->globalWorldCopies[threadNum + 1];
+
+                    WorldSlot *newSlot = &bottomThreadEditableCopy->data[PROJECT(inputData->columns, 0, col)];
+
+                    newSlot->slotContent = EMPTY;
+                }
+            }
         }
+
+        //Edit our version of the copy, even if it's outside our area of reach
+        (&worldEditableCopy->data[PROJECT(inputData->columns, newCopyRow, newCol)])->slotContent = RABBIT;
 
         if (newRow < startRow || newRow > endRow) {
             //Conflict, we have to access another thread's memory space, create a conflict
@@ -362,21 +395,21 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
             WorldSlot *newSlot = &world[PROJECT(inputData->columns, newRow, newCol)];
 
             movementResult = handleMoveRabbit(rabbitInfo, newSlot,
-                                              &worldEditableCopy->data[PROJECT(inputData->columns, newRow, newCol)]);
+                                              &worldEditableCopy->data[PROJECT(inputData->columns, newCopyRow,
+                                                                               newCol)]);
         }
 
         /**
-         * handle when the rabbit is moved inside our zone, but in the zone that is used by the threads around it
+         * handle when the rabbit is moved inside our zone, but into the zone that is stored by the copies of the threads around it
          * (First row and last row)
          * What we want to do is access their editable copy and change it to take into account our changes
          * Why will this not cause memory errors? Well since the thread t only uses the editable copy for the fox movement,
          * And this is still in the rabbit movement (We have to sync to solve conflicts, so all we know that the threads
          * Above and below us are not performing the fox generation yet).
          */
-        if (threadNum > 0 && movementResult == 1) {
-            if (newRow < startRow + 1) {
+        if (threadNum > 0) {
+            if (newRow == startRow) {
                 WorldCopy *topThreadEditableCopy = positionalData->globalWorldCopies[threadNum - 1];
-                //Now we have to calculate the correct row to access, how are we supposed to know that?
 
                 int lastRow = topThreadEditableCopy->rowCount - 1;
 
@@ -386,8 +419,8 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
             }
         }
 
-        if (threadNum < inputData->threads - 1 && movementResult == 1) {
-            if (newRow >= endRow - 1) {
+        if (threadNum < inputData->threads - 1) {
+            if (newRow == endRow) {
                 WorldCopy *bottomThreadEditableCopy = positionalData->globalWorldCopies[threadNum + 1];
 
                 WorldSlot *newSlot = &bottomThreadEditableCopy->data[PROJECT(inputData->columns, 0, newCol)];
@@ -404,8 +437,6 @@ tickRabbit(int threadNum, int genNumber, struct PositionalData *positionalData, 
     //we only generate children in the next generation, but we still have the correct
     //Number to handle the conflicts
     if (!procriated) {
-        (&worldEditableCopy->data[PROJECT(inputData->columns, (row - startRow) + storagePaddingTop, col)])
-                ->slotContent = EMPTY;
 
         //Only increment if we did not procriate
         rabbitInfo->prevGen = rabbitInfo->currentGen;
@@ -678,9 +709,15 @@ void performGeneration(int threadNumber, int genNumber,
 
     performRabbitGeneration(threadNumber, genNumber, &threadPositionalData, threadedData);
 
+    postAndWaitForSurrounding(threadNumber, inputData, threadedData);
+
     clearConflictsForThread(threadNumber, threadedData);
 
-    performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+    performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldGlobalCopy->data, startRow,
+                         endRow);
+
+    freeWorldCopy(worldCopy);
+    freeWorldCopy(worldGlobalCopy);
 }
 
 
@@ -696,7 +733,7 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
 
     WorldSlot *world = threadConflictData->world;
 
-    WorldSlot *editableWorld = threadConflictData->threadedData->globalWorldCopies[threadConflictData->threadNum];
+    WorldSlot *editableWorld = threadConflictData->threadedData->globalWorldCopies[threadConflictData->threadNum]->data;
 
     /*
      * Go through all the conflicts
@@ -718,7 +755,7 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
         WorldSlot *currentEntityInSlot =
                 &world[PROJECT(threadConflictData->inputData->columns, row, column)];
 
-        int copyRow = row - threadConflictData->startRow + storagePadding;
+        int copyRow = (row - threadConflictData->startRow) + storagePadding;
 
         //Both entities are the same, so we have to follow the rules for eating rabbits.
         if (conflict->slotContent == RABBIT) {
@@ -918,7 +955,7 @@ static int handleMoveRabbit(RabbitInfo *rabbitInfo, WorldSlot *newSlot, WorldSlo
     return -1;
 }
 
-void printPrettyAllGen(FILE *outputFile, InputData *inputData, WorldSlot *world) {
+void printPrettyAllGen(FILE *outputFile, InputData *inputData, WorldSlot *world, int rows) {
 
     for (int col = -1; col <= inputData->columns; col++) {
         fprintf(outputFile, "-");
@@ -938,9 +975,9 @@ void printPrettyAllGen(FILE *outputFile, InputData *inputData, WorldSlot *world)
 
     fprintf(outputFile, "\n");
 
-    for (int row = 0; row < inputData->rows; row++) {
+    for (int row = 0; row < (rows == -1 ? inputData->rows : rows); row++) {
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < (rows == -1 ? 3 : 1); i++) {
 
             if (i != 0) {
                 if (i == 1)
