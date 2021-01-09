@@ -6,7 +6,7 @@ int main() {
 
     printf("Executing the program....\n");
 
-    executeWithThreadCount(2, stdin, stdout);
+    executeWithThreadCount(16, stdin, stdout);
 
     return 0;
 }

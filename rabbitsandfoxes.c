@@ -709,7 +709,8 @@ void performGeneration(int threadNumber, int genNumber,
 
     performRabbitGeneration(threadNumber, genNumber, &threadPositionalData, threadedData);
 
-    postAndWaitForSurrounding(threadNumber, inputData, threadedData);
+//    postAndWaitForSurrounding(threadNumber, inputData, threadedData);
+    pthread_barrier_wait(&threadedData->barrier);
 
     clearConflictsForThread(threadNumber, threadedData);
 
