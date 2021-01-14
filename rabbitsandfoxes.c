@@ -4,8 +4,10 @@
 #include <string.h>
 #include "movements.h"
 #include "threads.h"
+#include <sys/time.h>
 
 #define MAX_NAME_LENGTH 6
+#define PRINT_ALL_GEN 0
 
 struct InitialInputData {
     int threadNumber;
@@ -16,6 +18,8 @@ struct InitialInputData {
 
     struct ThreadedData *threadedData;
 
+    ThreadRowData *threadRowData;
+
     int printOutput;
 };
 
@@ -25,6 +29,7 @@ static int handleMoveFox(FoxInfo *foxInfo, WorldSlot *newSlot);
 
 void printPrettyAllGen(FILE *, InputData *, WorldSlot *);
 
+void performSequentialGeneration(int genNumber, InputData *inputData, WorldSlot *world);
 
 static FoxInfo *initFoxInfo() {
     FoxInfo *foxInfo = malloc(sizeof(FoxInfo));
@@ -62,15 +67,17 @@ makeCopyOfPartOfWorld(int threadNumber, InputData *data, struct ThreadedData *th
 
 //    pthread_barrier_wait(&threadedData->barrier);
 
-//    postAndWaitForSurrounding(threadNumber, data, threadedData);
+    //postAndWaitForSurrounding(threadNumber, data, threadedData);
 
     int rowCount = (copyEndRow - copyStartRow) + 1;
 
     memcpy(destination, &toCopy[PROJECT(data->columns, copyStartRow, 0)],
            (rowCount * data->columns * sizeof(WorldSlot)));
 
-    //wait for surrounding threads to also complete their copy to allow changes to the tray
-    pthread_barrier_wait(&threadedData->barrier);
+    if (threadedData != NULL) {
+        //wait for surrounding threads to also complete their copy to allow changes to the tray
+        pthread_barrier_wait(&threadedData->barrier);
+    }
 }
 
 static void initialRowEntityCount(InputData *inputData, WorldSlot *world) {
@@ -80,6 +87,8 @@ static void initialRowEntityCount(InputData *inputData, WorldSlot *world) {
     int rockAmount = 0;
 
     for (int row = 0; row < inputData->rows; row++) {
+
+        int thisRow = 0;
 
         for (int col = 0; col < inputData->columns; col++) {
             WorldSlot *worldSlot = &world[PROJECT(inputData->columns, row, col)];
@@ -94,11 +103,14 @@ static void initialRowEntityCount(InputData *inputData, WorldSlot *world) {
 
                 globalCounter++;
 
+                thisRow++;
+
             } else if (worldSlot->slotContent == ROCK) {
                 rockAmount++;
             }
         }
 
+        inputData->entitiesPerRow[row] = thisRow;
         inputData->entitiesAccumulatedPerRow[row] = globalCounter;
     }
 
@@ -118,7 +130,8 @@ InputData *readInputData(FILE *file) {
     fscanf(file, "%d", &inputData->columns);
     fscanf(file, "%d", &inputData->initialPopulation);
 
-    inputData->entitiesAccumulatedPerRow = malloc(sizeof(int) * inputData->rows);
+    inputData->entitiesAccumulatedPerRow = malloc(sizeof(int) * (inputData->rows));
+    inputData->entitiesPerRow = malloc(sizeof(int) * inputData->rows);
 
     return inputData;
 }
@@ -182,6 +195,43 @@ void readWorldInitialData(FILE *file, InputData *data, WorldSlot *world) {
     initialRowEntityCount(data, world);
 }
 
+void executeSequentialThread(FILE *inputFile, FILE *outputFile) {
+
+    InputData *data = readInputData(inputFile);
+
+    data->threads = 1;
+
+    struct ThreadedData *threadedData = malloc(sizeof(struct ThreadedData));
+
+    initThreadData(data->threads, data, threadedData);
+
+    WorldSlot *world = initWorld(data);
+
+    readWorldInitialData(inputFile, data, world);
+
+    if (PRINT_ALL_GEN) {
+        outputFile = fopen("allgen.txt", "w");
+    }
+
+    for (int gen = 0; gen < data->n_gen; gen++) {
+
+        if (PRINT_ALL_GEN) {
+            fprintf(outputFile, "Generation %d\n", gen);
+            printf("Generation %d\n", gen);
+            printPrettyAllGen(outputFile, data, world);
+            fprintf(outputFile, "\n");
+        }
+
+        performSequentialGeneration(gen, data, world);
+    }
+
+    printf("RESULTS:\n");
+
+    printResults(outputFile, data, world);
+    fflush(outputFile);
+    freeWorldMatrix(data, world);
+}
+
 static void executeThread(struct InitialInputData *args) {
 
     FILE *outputFile;
@@ -190,8 +240,7 @@ static void executeThread(struct InitialInputData *args) {
         outputFile = fopen("allgen.txt", "w");
     }
 
-    int startRow = args->threadNumber * (args->inputData->rows / args->inputData->threads);
-    int endRow = ((args->threadNumber + 1) * (args->inputData->rows / args->inputData->threads)) - 1;
+    ThreadRowData *threadRowData = args->threadRowData;
 
     for (int gen = 0; gen < args->inputData->n_gen; gen++) {
 
@@ -209,8 +258,7 @@ static void executeThread(struct InitialInputData *args) {
         }
 
         performGeneration(args->threadNumber, gen, args->inputData,
-                          args->threadedData, args->world, startRow,
-                          endRow);
+                          args->threadedData, args->world, threadRowData);
     }
 
     if (args->printOutput && args->threadNumber == 0) {
@@ -233,9 +281,17 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
 
     readWorldInitialData(inputFile, data, world);
 
-    struct timespec startTime;
+    if (!verifyThreadInputs(data)) {
+        exit(EXIT_FAILURE);
+    }
 
-    clock_gettime(CLOCK_REALTIME, &startTime);
+    ThreadRowData *threadRowData = malloc(sizeof(ThreadRowData) * threadCount);
+
+    struct InitialInputData **inputDataList = malloc(sizeof(struct InitialInputData *) * threadCount);
+
+    struct timeval start, end;
+
+    gettimeofday(&start, NULL);
 
     for (int thread = 0; thread < threadCount; thread++) {
 
@@ -245,7 +301,10 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
         inputData->threadNumber = thread;
         inputData->world = world;
         inputData->threadedData = threadedData;
-        inputData->printOutput = 0;
+        inputData->printOutput = PRINT_ALL_GEN;
+        inputData->threadRowData = threadRowData;
+
+        inputDataList[thread] = inputData;
 
         printf("Initializing thread %d \n", thread);
 
@@ -257,16 +316,24 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
         pthread_join(threadedData->threads[thread], NULL);
     }
 
-    struct timespec endTime;
+    gettimeofday(&end, NULL);
 
-    clock_gettime(CLOCK_REALTIME, &endTime);
+    long seconds = (end.tv_sec - start.tv_sec);
+    long micros = ((seconds * 1000000) + end.tv_usec) - (start.tv_usec);
+
+    for (int thread = 0; thread < data->threads; thread++) {
+        free(inputDataList[thread]);
+    }
+
+    free(inputDataList);
 
     printf("RESULTS:\n");
 
     printResults(outputFile, data, world);
     fflush(outputFile);
-
-    printf("Took %ld nanoseconds\n", endTime.tv_nsec - startTime.tv_nsec);
+    printf("Took %ld microseconds\n", micros);
+    freeWorldMatrix(data, world);
+    freeThreadData(threadCount, threadedData);
 
 }
 
@@ -279,6 +346,10 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
 
     //If there is no moves then the move is successful
     int movementResult = 1, procriated = 0;
+
+#ifdef VERBOSE
+    printf("Checking rabbit (%d, %d)\n", row, col);
+#endif
 
     if (possibleRabbitMoves->emptyMovements > 0) {
 
@@ -307,6 +378,8 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
             rabbitInfo->prevGen = 0;
             rabbitInfo->currentGen = 0;
 
+            inputData->entitiesPerRow[row]++;
+
             procriated = 1;
         } else {
             realSlot->slotContent = EMPTY;
@@ -322,10 +395,15 @@ static void tickRabbit(int genNumber, int startRow, int endRow, int row, int col
             WorldSlot *newSlot = &world[PROJECT(inputData->columns, newRow, newCol)];
 
             movementResult = handleMoveRabbit(rabbitInfo, newSlot);
-        }
 
+            if (movementResult == 1) {
+                inputData->entitiesPerRow[newRow]++;
+            }
+        }
     } else {
         //No possible movements for the rabbit
+        inputData->entitiesPerRow[row]++;
+
     }
 
     //Increment the current after performing the move, but before the conflict resolution, so that
@@ -349,28 +427,33 @@ performRabbitGeneration(int threadNumber, int genNumber, InputData *inputData, s
 
     int storagePaddingTop = startRow > 0 ? 1 : 0;
 
-    int copyStartRow = startRow > 0 ? startRow - 1 : startRow,
-            copyEndRow = endRow < inputData->rows ? endRow + 1 : endRow;
-
 #ifdef VERBOSE
     printf("End Row: %d, start row: %d, storage padding top %d\n", endRow, startRow, storagePaddingTop);
 #endif
     int trueRowCount = (endRow - startRow);
 
-    Conflicts *conflictsForThread = threadedData->conflictPerThreads[threadNumber];
+    Conflicts *conflictsForThread;
+
+    if (threadedData != NULL)
+        conflictsForThread = threadedData->conflictPerThreads[threadNumber];
 
     //First move the rabbits
 
     struct RabbitMovements *possibleRabbitMoves = initRabbitMovements();
-    for (int copyRow = 0; copyRow <= trueRowCount; copyRow++) {
-        for (int col = 0; col < inputData->columns; col++) {
 
-            int row = copyRow + startRow;
+    for (int copyRow = 0; copyRow <= trueRowCount; copyRow++) {
+        int row = copyRow + startRow;
+        inputData->entitiesPerRow[row] = 0;
+    }
+
+    for (int copyRow = 0; copyRow <= trueRowCount; copyRow++) {
+        int row = copyRow + startRow;
+
+        for (int col = 0; col < inputData->columns; col++) {
 
             WorldSlot *slot = &worldCopy[PROJECT(inputData->columns, copyRow + storagePaddingTop, col)];
 
             if (slot->slotContent == RABBIT) {
-
 
                 getPossibleRabbitMovements(copyRow + storagePaddingTop, col, inputData, worldCopy,
                                            possibleRabbitMoves);
@@ -447,6 +530,8 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
             realSlot->entityInfo.foxInfo = initFoxInfo();
             realSlot->entityInfo.foxInfo->genUpdated = genNumber;
 
+            inputData->entitiesPerRow[row]++;
+
             foxInfo->genUpdated = genNumber;
             foxInfo->prevGenProc = foxInfo->currentGenProc;
             foxInfo->currentGenProc = 0;
@@ -482,8 +567,13 @@ static void tickFox(int genNumber, int startRow, int endRow, int row, int col, W
             WorldSlot *newSlot = &world[PROJECT(inputData->columns, newRow, newCol)];
 
             foxMovementResult = handleMoveFox(foxInfo, newSlot);
+            //We only increment the rows under our control, to avoid concurrency issues
+            if (foxMovementResult == 1) {
+                inputData->entitiesPerRow[newRow]++;
+            }
         }
     } else {
+        inputData->entitiesPerRow[row]++;
 #ifdef VERBOSE
         printf("FOX at %d %d has no possible movements\n", row, col);
 #endif
@@ -521,7 +611,9 @@ performFoxGeneration(int threadNumber, int genNumber, InputData *inputData, stru
 
     int trueRowCount = endRow - startRow;
 
-    Conflicts *conflictsForThread = threadedData->conflictPerThreads[threadNumber];
+    Conflicts *conflictsForThread;
+    if (threadedData != NULL)
+        conflictsForThread = threadedData->conflictPerThreads[threadNumber];
 
     struct FoxMovements *foxMovements = initFoxMovements();
 
@@ -552,9 +644,56 @@ performFoxGeneration(int threadNumber, int genNumber, InputData *inputData, stru
     synchronizeThreadAndSolveConflicts(&conflictData);
 }
 
+void performSequentialGeneration(int genNumber, InputData *inputData, WorldSlot *world) {
+
+    int startRow = 0, endRow = inputData->rows - 1;
+
+    int copyStartRow = startRow, copyEndRow = endRow;
+
+    int rowCount = (copyEndRow - copyStartRow) + 1;
+
+    /**
+ * A copy of our area of the tray. This copy will not be modified
+ */
+    WorldSlot *worldCopy = malloc(sizeof(WorldSlot) * rowCount * inputData->columns);
+
+#ifdef VERBOSE
+    printf("Doing copy of world Row: %d to %d (Initial: %d %d, %d)\n", copyStartRow, copyEndRow, startRow, endRow,
+           inputData->rows);
+#endif
+
+    makeCopyOfPartOfWorld(0, inputData, NULL, world, worldCopy, copyStartRow, copyEndRow);
+
+#ifdef VERBOSE
+    printf("Done copy on thread %d\n", threadNumber);
+#endif
+
+    performRabbitGeneration(0, genNumber, inputData, NULL, world, worldCopy, startRow, endRow);
+
+    makeCopyOfPartOfWorld(0, inputData, NULL, world, worldCopy, copyStartRow, copyEndRow);
+
+    performFoxGeneration(0, genNumber, inputData, NULL, world, worldCopy, startRow, endRow);
+
+    free(worldCopy);
+
+}
+
 void performGeneration(int threadNumber, int genNumber,
-                       InputData *inputData, struct ThreadedData *threadedData, WorldSlot *world, int startRow,
-                       int endRow) {
+                       InputData *inputData, struct ThreadedData *threadedData, WorldSlot *world,
+                       ThreadRowData *threadRowData) {
+
+    if (threadNumber == 0) {
+        calculateOptimalThreadBalance(inputData->threads, threadRowData, inputData);
+    }
+
+    pthread_barrier_wait(&threadedData->barrier);
+
+    ThreadRowData *ourData = &threadRowData[threadNumber];
+
+    //printf("Thread %d has start row %d and end row %d\n", threadNumber, ourData->startRow, ourData->endRow);
+
+    int startRow = ourData->startRow,
+            endRow = ourData->endRow;
 
     int copyStartRow = startRow > 0 ? startRow - 1 : startRow,
             copyEndRow = endRow < (inputData->rows - 1) ? endRow + 1 : endRow;
@@ -580,6 +719,8 @@ void performGeneration(int threadNumber, int genNumber,
     clearConflictsForThread(threadNumber, threadedData);
 
     performRabbitGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+
+    pthread_barrier_wait(&threadedData->barrier);
 
     makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy, copyStartRow, copyEndRow);
 
@@ -608,6 +749,8 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
 
         int row = conflict->newRow, column = conflict->newCol;
 
+        int movementResult = -1;
+
         if (row < threadConflictData->startRow || row > threadConflictData->endRow) {
             fprintf(stderr,
                     "ERROR: ATTEMPTING TO RESOLVE CONFLICT WITH ROW OUTSIDE SCOPE\n Row: %d, Start Row: %d End Row: %d\n",
@@ -622,22 +765,28 @@ void handleConflicts(struct ThreadConflictData *threadConflictData, int conflict
         //Both entities are the same, so we have to follow the rules for eating rabbits.
         if (conflict->slotContent == RABBIT) {
 
-            if (handleMoveRabbit((RabbitInfo *) conflict->data, currentEntityInSlot) == 0) {
+            movementResult = handleMoveRabbit((RabbitInfo *) conflict->data, currentEntityInSlot);
+
+            if (movementResult == 0) {
                 freeRabbitInfo(conflict->data);
             }
 
         } else if (conflict->slotContent == FOX) {
 
-            int foxResult = handleMoveFox(conflict->data, currentEntityInSlot);
+            movementResult = handleMoveFox(conflict->data, currentEntityInSlot);
 
-            if (foxResult == 2) {
+            if (movementResult == 2) {
                 //This happens after the gen food has been incremented, so if we set it to 0 here
                 //It should produce the desired output
                 ((FoxInfo *) conflict->data)->currentGenFood = 0;
-            } else if (foxResult == 0) {
+            } else if (movementResult == 0) {
                 freeFoxInfo(conflict->data);
             }
 
+        }
+
+        if (movementResult == 1) {
+            threadConflictData->inputData->entitiesPerRow[row]++;
         }
     }
 }
@@ -874,8 +1023,9 @@ void printPrettyAllGen(FILE *outputFile, InputData *inputData, WorldSlot *world)
             }
 
             fprintf(outputFile, "|");
-
         }
+
+        //fprintf(outputFile, "%d", inputData->entitiesPerRow[row]);
 
         fprintf(outputFile, "\n");
     }
@@ -935,6 +1085,24 @@ void printResults(FILE *outputFile, InputData *inputData, WorldSlot *worldSlot) 
 
 }
 
-void freeWorldMatrix(WorldSlot *worldMatrix) {
+void freeWorldMatrix(InputData *data, WorldSlot *worldMatrix) {
+    for (int row = 0; row < data->rows; row++) {
+        for (int col = 0; col < data->columns; col++) {
+            WorldSlot *slot = &worldMatrix[PROJECT(data->columns, row, col)];
+            if (slot->slotContent == RABBIT) {
+                freeRabbitInfo(slot->entityInfo.rabbitInfo);
+            } else if (slot->slotContent == FOX) {
+                freeFoxInfo(slot->entityInfo.foxInfo);
+            }
+
+            freeMovementForSlot(slot->defaultPossibleMoveDirections);
+
+        }
+    }
+
+    free(data->entitiesPerRow);
+    free(data->entitiesAccumulatedPerRow);
+
+    free(data);
     freeMatrix((void **) &worldMatrix);
 }

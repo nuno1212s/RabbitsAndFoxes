@@ -12,6 +12,8 @@ struct ThreadedData;
 
 struct ThreadConflictData;
 
+typedef struct ThreadRowData_ ThreadRowData;
+
 typedef struct InputData_ {
 
     int gen_proc_rabbits, gen_proc_foxes, gen_food_foxes;
@@ -26,6 +28,8 @@ typedef struct InputData_ {
     int rocks;
 
     int *entitiesAccumulatedPerRow;
+
+    int *entitiesPerRow;
 
 } InputData;
 
@@ -86,6 +90,8 @@ InputData *readInputData(FILE *file);
  */
 WorldSlot *initWorld(InputData *data);
 
+void executeSequentialThread(FILE *inputFile, FILE *outputFile);
+
 void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile);
 
 void readWorldInitialData(FILE *inputFile, InputData *inputData, WorldSlot *world);
@@ -102,12 +108,12 @@ void readWorldInitialData(FILE *inputFile, InputData *inputData, WorldSlot *worl
  */
 void
 performGeneration(int threadNumber, int genNumber, InputData *inputData,
-                  struct ThreadedData *threadedData, WorldSlot *world, int startRow, int endRow);
+                  struct ThreadedData *threadedData, WorldSlot *world, ThreadRowData *threadRowData);
 
 void handleConflicts(struct ThreadConflictData *conflictData, int conflictCount, Conflict *conflicts);
 
 void printResults(FILE *outputFile, InputData *inputData, WorldSlot *world);
 
-void freeWorldMatrix(WorldSlot *worldMatrix);
+void freeWorldMatrix(InputData *data, WorldSlot *worldMatrix);
 
 #endif //TRABALHO_2_RABBITSANDFOXES_H

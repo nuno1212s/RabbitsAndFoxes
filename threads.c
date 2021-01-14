@@ -71,6 +71,99 @@ void initAndAppendConflict(Conflicts *conflicts, int above, int newRow, int newC
     (*current)++;
 }
 
+int findRowWithEntities(int entityCount, const int *entitiesPerRowAccumulated, int rowCount) {
+
+    int bottom = 0, top = rowCount - 1;
+
+    int middle = (top + bottom) / 2;
+
+    while (!(entitiesPerRowAccumulated[middle] <= entityCount && (middle >= rowCount - 1 ||
+                                                                  entitiesPerRowAccumulated[middle + 1] >
+                                                                  entityCount))) {
+        if (entitiesPerRowAccumulated[middle] > entityCount) {
+            top = middle - 1;
+        } else if (entitiesPerRowAccumulated[middle] < entityCount){
+            bottom = middle + 1;
+        } else {
+            return middle;
+        }
+
+        middle = (top + bottom) / 2;
+
+        if (top == bottom || top < bottom) {
+            break;
+        }
+    }
+
+    return middle;
+}
+
+int verifyThreadInputs(InputData *inputData) {
+
+    if (inputData->threads > inputData->rows) {
+        fprintf(stderr, "The number of threads cannot be larger than the number of rows!");
+
+        exit(EXIT_FAILURE);
+    }
+
+    return 1;
+}
+
+void calculateOptimalThreadBalance(int threadCount, ThreadRowData *threadDatas, InputData *data) {
+
+    data->entitiesAccumulatedPerRow[0] = data->entitiesPerRow[0];
+
+    for (int row = 1; row < data->rows; row++) {
+        data->entitiesAccumulatedPerRow[row] = data->entitiesAccumulatedPerRow[row - 1] + data->entitiesPerRow[row];
+    }
+
+    int totalEntities = data->entitiesAccumulatedPerRow[data->rows - 1];
+
+    int optimalEntitiesPerThread = totalEntities / threadCount;
+
+    int endOfPrevious = 0;
+
+    int lastRowIndex = data->rows - 1;
+
+    //We want thread to start
+    for (int thread = 1; thread <= threadCount; thread++) {
+
+        int threadsRemaining = threadCount - thread;
+
+        int startRow = endOfPrevious, endRow;
+
+        int optimalCumulativeCount = thread * optimalEntitiesPerThread;
+
+        /**
+         * Employ binary search to find
+         */
+        int rowWithCumulative = findRowWithEntities(optimalCumulativeCount, data->entitiesAccumulatedPerRow,
+                                                    data->rows);
+
+        //We have to make sure that there are still some rows for the upcoming threads
+        if ((lastRowIndex - rowWithCumulative) < threadsRemaining) {
+            rowWithCumulative = (lastRowIndex - threadsRemaining);
+        }
+
+        if (rowWithCumulative < startRow) {
+            rowWithCumulative = startRow;
+        }
+
+        //If we're the last thread remaining, take up the slack of rows that haven't been picked
+        if (threadsRemaining == 0 && rowWithCumulative < data->rows - 1) {
+            rowWithCumulative = data->rows - 1;
+        }
+
+        endRow = rowWithCumulative;
+
+        endOfPrevious = rowWithCumulative + 1;
+
+        (&threadDatas[thread - 1])->endRow = endRow;
+        (&threadDatas[thread - 1])->startRow = startRow;
+    }
+
+}
+
 void freeConflict(Conflict *conflict) {
     free(conflict);
 }
@@ -184,45 +277,69 @@ void postAndWaitForSurrounding(int threadNumber, InputData *data, struct Threade
 
     sem_getvalue(our_sem, &val);
 
-    printf("Thread %d entered post and wait %p value: %d\n", threadNumber, our_sem, val);
+    //printf("Thread %d entered post and wait %p value: %d\n", threadNumber, our_sem, val);
 
     if (threadNumber == 0) {
         sem_t *botSem = &threadedData->threadSemaphores[threadNumber + 1];
 
-        printf("Thread %d Waiting for bot_sem %d\n", threadNumber, threadNumber + 1);
+       // printf("Thread %d Waiting for bot_sem %d\n", threadNumber, threadNumber + 1);
 
         sem_getvalue(botSem, &val);
 
-        printf("Sem %d %p value: %d\n", threadNumber + 1, botSem, val);
+        //printf("Sem %d %p value: %d\n", threadNumber + 1, botSem, val);
         sem_wait(botSem);
 
-        printf("Thread %d unlocked.\n", threadNumber);
+        //printf("Thread %d unlocked.\n", threadNumber);
     } else if (threadNumber > 0 && threadNumber < (data->threads - 1)) {
 
         sem_t *botSem = &threadedData->threadSemaphores[threadNumber + 1],
                 *topSem = &threadedData->threadSemaphores[threadNumber - 1];
 
 
-        printf("Thread %d Waiting for top sem,...\n", threadNumber);
+        //printf("Thread %d Waiting for top sem,...\n", threadNumber);
         sem_getvalue(topSem, &val);
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, botSem, val);
+        //printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, botSem, val);
         sem_wait(topSem);
 
-        printf("Thread %d unlocked top.\n", threadNumber);
-        printf("Thread %d Waiting for bot_sem\n", threadNumber);
+        //printf("Thread %d unlocked top.\n", threadNumber);
+        //printf("Thread %d Waiting for bot_sem\n", threadNumber);
         sem_getvalue(botSem, &val);
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber + 1, botSem, val);
+        //printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber + 1, botSem, val);
         sem_wait(botSem);
-        printf("Thread %d unlocked bot. (UNLOCKED)\n", threadNumber);
+        //printf("Thread %d unlocked bot. (UNLOCKED)\n", threadNumber);
     } else {
         sem_t *topSem = &threadedData->threadSemaphores[threadNumber - 1];
 
-        printf("Thread %d Waiting for top_sem %d\n", threadNumber, threadNumber - 1);
+        //printf("Thread %d Waiting for top_sem %d\n", threadNumber, threadNumber - 1);
         sem_getvalue(topSem, &val);
 
-        printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, &topSem, val);
+        //printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, &topSem, val);
         sem_wait(topSem);
-        printf("Unlock thread %d\n", threadNumber);
+       // printf("Unlock thread %d\n", threadNumber);
     }
 
+}
+
+void freeConflicts(Conflicts *conflicts) {
+    free(conflicts->above);
+    free(conflicts->bellow);
+
+    free(conflicts);
+}
+
+void freeThreadData(int threads, struct ThreadedData *data) {
+
+    for (int thread = 0; thread < threads; thread++) {
+        freeConflicts(data->conflictPerThreads[thread]);
+
+        sem_destroy(&data->threadSemaphores[thread]);
+    }
+    free(data->conflictPerThreads);
+
+    free(data->threadSemaphores);
+    free(data->threads);
+
+    pthread_barrier_destroy(&data->barrier);
+
+    free(data);
 }

@@ -54,11 +54,21 @@ struct ThreadConflictData {
     struct ThreadedData *threadedData;
 };
 
+typedef struct ThreadRowData_ {
+
+    int startRow, endRow;
+
+} ThreadRowData;
+
 void initThreadData(int threadCount, InputData *data, struct ThreadedData *destination);
 
 void postAndWaitForSurrounding(int threadNumber, InputData *data, struct ThreadedData *threadedData);
 
 void initAndAppendConflict(Conflicts *conflicts, int above, int newRow, int newCol, WorldSlot *slot);
+
+int verifyThreadInputs(InputData *inputData);
+
+void calculateOptimalThreadBalance(int threadCount, ThreadRowData *threadDatas, InputData *inputData);
 
 void synchronizeThreadAndSolveConflicts(struct ThreadConflictData *conflictData);
 
@@ -66,5 +76,6 @@ void clearConflictsForThread(int thread, struct ThreadedData *threadedData);
 
 void freeConflict(Conflict *);
 
+void freeThreadData(int threads, struct ThreadedData* free);
 
 #endif //TRABALHO_2_THREADS_H
