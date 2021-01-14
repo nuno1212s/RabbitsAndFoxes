@@ -2,13 +2,23 @@
 #include <stdlib.h>
 #include "rabbitsandfoxes.h"
 
-int main() {
+int main(int argc, char **argv) {
 
-    printf("Executing the program....\n");
+    int sequential = 0, threads = 1;
 
-    //executeWithThreadCount(1, stdin, stdout);
+    if (argc > 1) {
+        threads = atoi(argv[1]);
 
-    executeSequentialThread(stdin, stdout);
+        if (threads <= 0) {
+            sequential = 1;
+        }
+    }
+
+    if (!sequential) {
+        executeWithThreadCount(8, stdin, stdout);
+    } else {
+        executeSequentialThread(stdin, stdout);
+    }
 
     return 0;
 }
