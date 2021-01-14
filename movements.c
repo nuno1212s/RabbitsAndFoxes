@@ -234,6 +234,12 @@ void getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *w
     }
 }
 
+void freeMovementForSlot(MoveDirection *directions) {
+    if (directions != defaultDirections) {
+        free(directions);
+    }
+}
+
 void freeDefaultMovements(struct DefaultMovements *movements) {
     free(movements->directions);
 }

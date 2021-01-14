@@ -52,6 +52,8 @@ void getPossibleFoxMovements(int x, int y, InputData *inputData, WorldSlot *worl
 
 void getPossibleRabbitMovements(int x, int y, InputData *inputData, WorldSlot *world, struct RabbitMovements *dest);
 
+void freeMovementForSlot(MoveDirection *directions);
+
 void freeDefaultMovements(struct DefaultMovements *movements);
 
 void freeFoxMovements(struct FoxMovements *foxMovements);
