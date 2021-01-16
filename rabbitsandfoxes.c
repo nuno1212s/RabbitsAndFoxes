@@ -581,11 +581,15 @@ void performGeneration(int threadNumber, int genNumber,
 
     performRabbitGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
 
+    pthread_barrier_wait(&threadedData->barrier);
+
     makeCopyOfPartOfWorld(threadNumber, inputData, threadedData, world, worldCopy, copyStartRow, copyEndRow);
 
     clearConflictsForThread(threadNumber, threadedData);
 
     performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+
+    pthread_barrier_wait(&threadedData->barrier);
 }
 
 
