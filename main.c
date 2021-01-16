@@ -15,7 +15,7 @@ int main(int argc, char **argv) {
     }
 
     if (!sequential) {
-        executeWithThreadCount(8, stdin, stdout);
+        executeWithThreadCount(threads, stdin, stdout);
     } else {
         executeSequentialThread(stdin, stdout);
     }
