@@ -681,13 +681,6 @@ void performSequentialGeneration(int genNumber, InputData *inputData, WorldSlot 
 void performGeneration(int threadNumber, int genNumber,
                        InputData *inputData, struct ThreadedData *threadedData, WorldSlot *world,
                        ThreadRowData *threadRowData) {
-
-    if (threadNumber == 0) {
-        calculateOptimalThreadBalance(inputData->threads, threadRowData, inputData);
-    }
-
-    pthread_barrier_wait(&threadedData->barrier);
-
     ThreadRowData *ourData = &threadRowData[threadNumber];
 
     //printf("Thread %d has start row %d and end row %d\n", threadNumber, ourData->startRow, ourData->endRow);
@@ -727,6 +720,8 @@ void performGeneration(int threadNumber, int genNumber,
     clearConflictsForThread(threadNumber, threadedData);
 
     performFoxGeneration(threadNumber, genNumber, inputData, threadedData, world, worldCopy, startRow, endRow);
+
+    calculateAccumulatedEntitiesForThread(threadNumber, inputData, threadRowData, threadedData);
 }
 
 
@@ -1054,7 +1049,7 @@ void printResults(FILE *outputFile, InputData *inputData, WorldSlot *worldSlot) 
     //TODO: Complete the entity count
     fprintf(outputFile, "%d %d %d %d %d %d %d\n", inputData->gen_proc_rabbits, inputData->gen_proc_foxes,
             inputData->gen_food_foxes,
-            inputData->n_gen, inputData->rows, inputData->columns, 0);
+            0, inputData->rows, inputData->columns, inputData->entitiesAccumulatedPerRow[inputData->rows - 1]);
 
     for (int row = 0; row < inputData->rows; row++) {
         for (int col = 0; col < inputData->columns; col++) {

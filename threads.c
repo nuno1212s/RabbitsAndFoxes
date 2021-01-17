@@ -9,6 +9,7 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
     destination->conflictPerThreads = malloc(sizeof(Conflicts *) * threadCount);
 
     destination->threadSemaphores = malloc(sizeof(sem_t) * threadCount);
+    destination->precedingSemaphores = malloc(sizeof(sem_t) * threadCount);
 
     pthread_barrier_init(&destination->barrier, NULL, threadCount);
 
@@ -21,6 +22,7 @@ void initThreadData(int threadCount, InputData *data, struct ThreadedData *desti
         destination->conflictPerThreads[i]->bellow = malloc(sizeof(Conflict) * data->columns);
 
         sem_init(&destination->threadSemaphores[i], 0, 0);
+        sem_init(&destination->precedingSemaphores[i], 0, 0);
 
 //        printf("Initialized semaphore on address %p\n", &destination->threadSemaphores[i]);
     }
@@ -82,7 +84,7 @@ int findRowWithEntities(int entityCount, const int *entitiesPerRowAccumulated, i
                                                                   entityCount))) {
         if (entitiesPerRowAccumulated[middle] > entityCount) {
             top = middle - 1;
-        } else if (entitiesPerRowAccumulated[middle] < entityCount){
+        } else if (entitiesPerRowAccumulated[middle] < entityCount) {
             bottom = middle + 1;
         } else {
             return middle;
@@ -110,13 +112,6 @@ int verifyThreadInputs(InputData *inputData) {
 }
 
 void calculateOptimalThreadBalance(int threadCount, ThreadRowData *threadDatas, InputData *data) {
-
-    data->entitiesAccumulatedPerRow[0] = data->entitiesPerRow[0];
-
-    for (int row = 1; row < data->rows; row++) {
-        data->entitiesAccumulatedPerRow[row] = data->entitiesAccumulatedPerRow[row - 1] + data->entitiesPerRow[row];
-    }
-
     int totalEntities = data->entitiesAccumulatedPerRow[data->rows - 1];
 
     int optimalEntitiesPerThread = totalEntities / threadCount;
@@ -258,6 +253,50 @@ void synchronizeThreadAndSolveConflicts(struct ThreadConflictData *conflictData)
     }
 }
 
+
+static void postForNextThread(int threadNumber, InputData *data, struct ThreadedData *threadedData) {
+    if (threadNumber < data->threads - 1) {
+        sem_t *our_sem = &threadedData->precedingSemaphores[threadNumber];
+
+        sem_post(our_sem);
+    }
+
+    //Wait until all the threads are done
+    //Because the last thread calculates the thread balance, we can instantly start a new generation
+    pthread_barrier_wait(&threadedData->barrier);
+}
+
+static void waitForPrecedingThread(int threadNumber, InputData *data, struct ThreadedData *threadedData) {
+
+    if (threadNumber > 0) {
+        sem_t *topSem = &threadedData->precedingSemaphores[threadNumber - 1];
+
+        sem_wait(topSem);
+    }
+
+}
+
+void calculateAccumulatedEntitiesForThread(int threadNumber, InputData *inputData, ThreadRowData *threadRowData,
+                                           struct ThreadedData *threadedData) {
+    waitForPrecedingThread(threadNumber, inputData, threadedData);
+
+    ThreadRowData *threadRows = &threadRowData[threadNumber];
+
+    int startRow = threadRows->startRow, endRow = threadRows->endRow;
+
+    for (int row = startRow; row <= endRow; row++) {
+        inputData->entitiesAccumulatedPerRow[row] =
+                inputData->entitiesAccumulatedPerRow[row - 1] + inputData->entitiesPerRow[row];
+    }
+
+    if (threadNumber == inputData->threads - 1) {
+        calculateOptimalThreadBalance(inputData->threads, threadRowData, inputData);
+    }
+
+    postForNextThread(threadNumber, inputData, threadedData);
+}
+
+
 void postAndWaitForSurrounding(int threadNumber, InputData *data, struct ThreadedData *threadedData) {
 
     if (data->threads < 2) return;
@@ -282,7 +321,7 @@ void postAndWaitForSurrounding(int threadNumber, InputData *data, struct Threade
     if (threadNumber == 0) {
         sem_t *botSem = &threadedData->threadSemaphores[threadNumber + 1];
 
-       // printf("Thread %d Waiting for bot_sem %d\n", threadNumber, threadNumber + 1);
+        // printf("Thread %d Waiting for bot_sem %d\n", threadNumber, threadNumber + 1);
 
         sem_getvalue(botSem, &val);
 
@@ -315,7 +354,7 @@ void postAndWaitForSurrounding(int threadNumber, InputData *data, struct Threade
 
         //printf("Thread %d Sem %d %p value: %d\n", threadNumber, threadNumber - 1, &topSem, val);
         sem_wait(topSem);
-       // printf("Unlock thread %d\n", threadNumber);
+        // printf("Unlock thread %d\n", threadNumber);
     }
 
 }

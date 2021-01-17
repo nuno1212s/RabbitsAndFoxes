@@ -36,7 +36,7 @@ struct ThreadedData {
 
     pthread_t *threads;
 
-    sem_t *threadSemaphores;
+    sem_t *threadSemaphores, *precedingSemaphores;
 
     pthread_barrier_t barrier;
 };
@@ -72,10 +72,13 @@ void calculateOptimalThreadBalance(int threadCount, ThreadRowData *threadDatas, 
 
 void synchronizeThreadAndSolveConflicts(struct ThreadConflictData *conflictData);
 
+void calculateAccumulatedEntitiesForThread(int threadNumber, InputData *inputData, ThreadRowData *threadRowData,
+                                           struct ThreadedData *threadedData);
+
 void clearConflictsForThread(int thread, struct ThreadedData *threadedData);
 
 void freeConflict(Conflict *);
 
-void freeThreadData(int threads, struct ThreadedData* free);
+void freeThreadData(int threads, struct ThreadedData *free);
 
 #endif //TRABALHO_2_THREADS_H
