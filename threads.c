@@ -68,6 +68,8 @@ void initAndAppendConflict(Conflicts *conflicts, int above, int newRow, int newC
         case RABBIT:
             conflict->data = slot->entityInfo.rabbitInfo;
             break;
+        default:
+            break;
     }
 
     (*current)++;
@@ -155,6 +157,8 @@ void calculateOptimalThreadBalance(int threadCount, ThreadRowData *threadDatas, 
 
         (&threadDatas[thread - 1])->endRow = endRow;
         (&threadDatas[thread - 1])->startRow = startRow;
+
+        //printf("Limits for thread %d, %d %d\n", thread-1, startRow, endRow);
     }
 
 }
@@ -264,6 +268,8 @@ static void postForNextThread(int threadNumber, InputData *data, struct Threaded
     //Wait until all the threads are done
     //Because the last thread calculates the thread balance, we can instantly start a new generation
     pthread_barrier_wait(&threadedData->barrier);
+
+    //printf("Passed the barrier! Thread %d\n", threadNumber);
 }
 
 static void waitForPrecedingThread(int threadNumber, InputData *data, struct ThreadedData *threadedData) {

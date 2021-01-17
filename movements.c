@@ -64,6 +64,9 @@ Move *getMoveFor(MoveDirection direction) {
         case WEST: {
             return WEST_MOVE;
         }
+
+        default:
+            return NORTH_MOVE;
     }
 
 }

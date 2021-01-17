@@ -293,6 +293,8 @@ void executeWithThreadCount(int threadCount, FILE *inputFile, FILE *outputFile) 
 
     gettimeofday(&start, NULL);
 
+    calculateOptimalThreadBalance(threadCount, threadRowData, data);
+
     for (int thread = 0; thread < threadCount; thread++) {
 
         struct InitialInputData *inputData = malloc(sizeof(struct InitialInputData));
@@ -1020,7 +1022,7 @@ void printPrettyAllGen(FILE *outputFile, InputData *inputData, WorldSlot *world)
             fprintf(outputFile, "|");
         }
 
-        //fprintf(outputFile, "%d", inputData->entitiesPerRow[row]);
+       // fprintf(outputFile, "%d %d", inputData->entitiesPerRow[row], inputData->entitiesAccumulatedPerRow[row]);
 
         fprintf(outputFile, "\n");
     }
