@@ -1,6 +1,6 @@
 CC=gcc
 ARGS=-Wall
-LINKS=-lpthread
+LINKS=-lpthread -L`jemalloc-config --libdir` -Wl,-rpath,`jemalloc-config --libdir` -ljemalloc `jemalloc-config --libs`
 OUTPUT=ecosystem
 
 all:

@@ -1,6 +1,6 @@
 #include "rabbitsandfoxes.h"
 #include "matrix_utils.h"
-#include <stdlib.h>
+#include <jemalloc/jemalloc.h>
 #include <string.h>
 #include "movements.h"
 #include "threads.h"
@@ -32,6 +32,7 @@ void printPrettyAllGen(FILE *, InputData *, WorldSlot *);
 void performSequentialGeneration(int genNumber, InputData *inputData, WorldSlot *world);
 
 static FoxInfo *initFoxInfo() {
+
     FoxInfo *foxInfo = malloc(sizeof(FoxInfo));
 
     foxInfo->currentGenFood = 0;
